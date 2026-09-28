@@ -14,16 +14,16 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI DETEKSI & KONVERSI TANDA TANGAN ---
+# --- FUNGSI DETEKSI & KONVERSI TANDA TANGAN AMAN ---
 def get_canvas_base64(canvas_obj):
-    if canvas_obj is None or canvas_obj.image_data is None:
+    if canvas_obj is None:
         return None
     try:
-        img_data = canvas_obj.image_data
-        if isinstance(img_data, np.ndarray):
-            # Cek transparansi (Alpha channel > 0) atau ketebalan warna
+        # Mengakses image_data secara aman
+        img_data = getattr(canvas_obj, "image_data", None)
+        if img_data is not None and isinstance(img_data, np.ndarray):
             alpha = img_data[:, :, 3]
-            if np.sum(alpha > 0) > 10:  # Jika ada minimal 10 piksel terisi
+            if np.sum(alpha > 0) > 10:  # Minimal 10 piksel tergores
                 img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
                 buffered = BytesIO()
                 img.save(buffered, format="PNG")
@@ -245,10 +245,10 @@ else:
             width=350,
             drawing_mode="freedraw",
             update_streamlit=True,
+            realtime_update=True,  # DIATUR TRUE AGAR TIDAK ERROR
             key=canvas_admin_key,
         )
 
-        # OTOMATIS AMBIL DATA GAMBAR DARI CANVAS
         ttd_admin_base64 = get_canvas_base64(canvas_admin)
 
         col_a1, col_a2 = st.columns([2, 2])
@@ -353,6 +353,7 @@ else:
                 width=350,
                 drawing_mode="freedraw",
                 update_streamlit=True,
+                realtime_update=True,  # DIATUR TRUE AGAR TIDAK ERROR
                 key=canvas_user_key,
             )
 
