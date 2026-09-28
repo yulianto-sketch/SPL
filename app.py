@@ -14,32 +14,23 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI DETEKSI TANDA TANGAN AMAN ---
-def process_canvas_data(canvas_obj):
-    if canvas_obj is None:
-        return None, False
+# --- FUNGSI DETEKSI & KONVERSI TANDA TANGAN ---
+def get_canvas_base64(canvas_obj):
+    if canvas_obj is None or canvas_obj.image_data is None:
+        return None
     try:
         img_data = canvas_obj.image_data
-        if img_data is not None and isinstance(img_data, np.ndarray):
-            # Cek jika ada piksel garis (Alpha > 0)
+        if isinstance(img_data, np.ndarray):
+            # Cek transparansi (Alpha channel > 0) atau ketebalan warna
             alpha = img_data[:, :, 3]
-            if np.sum(alpha > 0) > 20:  # Minimal 20 piksel terisi
-                return img_data, True
+            if np.sum(alpha > 0) > 10:  # Jika ada minimal 10 piksel terisi
+                img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+                buffered = BytesIO()
+                img.save(buffered, format="PNG")
+                return base64.b64encode(buffered.getvalue()).decode('utf-8')
     except Exception:
         pass
-    return None, False
-
-# --- FUNGSI CONVERT PNG ARRAY KE BASE64 ---
-def canvas_to_base64(image_data):
-    if image_data is None:
-        return None
-    try:
-        img = Image.fromarray(image_data.astype('uint8'), 'RGBA')
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode('utf-8')
-    except Exception:
-        return None
+    return None
 
 # --- HELPER BASE64 TO FILE ---
 def base64_to_temp_file(base64_str, filename):
@@ -157,13 +148,6 @@ def hitung_durasi_jam(string_jam):
 
 st.session_state.db_spl = load_data()
 
-# Session State Initialization
-if "saved_ttd_admin_base64" not in st.session_state:
-    st.session_state.saved_ttd_admin_base64 = None
-
-if "saved_ttd_user_base64" not in st.session_state:
-    st.session_state.saved_ttd_user_base64 = None
-
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.role = None
@@ -216,8 +200,6 @@ else:
         st.session_state.logged_in = False
         st.session_state.role = None
         st.session_state.last_sent_spl = None
-        st.session_state.saved_ttd_admin_base64 = None
-        st.session_state.saved_ttd_user_base64 = None
         st.rerun()
 
     st.title("📝 Surat Perintah Lembur (SPL)")
@@ -236,7 +218,6 @@ else:
             
             if st.button("➕ Buat SPL Baru Lagi"):
                 st.session_state.last_sent_spl = None
-                st.session_state.saved_ttd_admin_base64 = None
                 st.rerun()
             st.divider()
 
@@ -253,13 +234,13 @@ else:
         instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan:**")
-        st.caption("1️⃣ Goreskan tanda tangan pada kotak di bawah.\n2️⃣ Klik tombol **'📌 Simpan & Konfirmasi Tanda Tangan'**.")
+        st.caption("✏️ Goreskan tanda tangan Anda pada kotak di bawah ini.")
         
         canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
         canvas_admin = st_canvas(
             stroke_width=3,
             stroke_color="#000000",
-            background_color="#EEEEEE",
+            background_color="#FFFFFF",
             height=130,
             width=350,
             drawing_mode="freedraw",
@@ -267,27 +248,20 @@ else:
             key=canvas_admin_key,
         )
 
+        # OTOMATIS AMBIL DATA GAMBAR DARI CANVAS
+        ttd_admin_base64 = get_canvas_base64(canvas_admin)
+
         col_a1, col_a2 = st.columns([2, 2])
         with col_a1:
-            if st.button("📌 Simpan & Konfirmasi Tanda Tangan", key="confirm_admin"):
-                img_data, ada = process_canvas_data(canvas_admin)
-                if ada:
-                    st.session_state.saved_ttd_admin_base64 = canvas_to_base64(img_data)
-                    st.success("✅ Tanda tangan berhasil dikonfirmasi!")
-                else:
-                    st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan terlebih dahulu!")
+            if ttd_admin_base64:
+                st.success("✅ Tanda tangan terdeteksi!")
+            else:
+                st.warning("⚠️ Belum ada tanda tangan di canvas.")
 
         with col_a2:
-            if st.button("🗑️ Hapus / Reset Tanda Tangan", key="reset_admin"):
+            if st.button("🗑️ Reset Tanda Tangan", key="reset_admin"):
                 st.session_state.reset_canvas_admin += 1
-                st.session_state.saved_ttd_admin_base64 = None
                 st.rerun()
-
-        # Indikator Status TTD
-        if st.session_state.saved_ttd_admin_base64:
-            st.info("Status TTD Atasan: **✅ Terkonfirmasi & Siap Dikirim**")
-        else:
-            st.warning("Status TTD Atasan: **❌ Belum Dikonfirmasi**")
 
         st.divider()
 
@@ -299,8 +273,8 @@ else:
                 err_msg.append("Nama Karyawan belum diisi")
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
-            if not st.session_state.saved_ttd_admin_base64:
-                err_msg.append("Tanda tangan belum disimpan & dikonfirmasi (klik tombol '📌 Simpan & Konfirmasi Tanda Tangan' dulu)")
+            if not ttd_admin_base64:
+                err_msg.append("Tanda tangan Atasan belum diisi di canvas")
 
             if err_msg:
                 st.error("⚠️ " + " | ".join(err_msg))
@@ -315,7 +289,7 @@ else:
                     "jam": f"{jam_mulai.strftime('%H:%M')} - {jam_selesai.strftime('%H:%M')}",
                     "instruksi": instruksi,
                     "ttd_admin": True,
-                    "ttd_admin_img": st.session_state.saved_ttd_admin_base64,
+                    "ttd_admin_img": ttd_admin_base64,
                     "ttd_user": False,
                     "ttd_user_img": None,
                     "req_delete": False,
@@ -325,7 +299,6 @@ else:
                 save_data(st.session_state.db_spl)
                 
                 st.session_state.reset_canvas_admin += 1
-                st.session_state.saved_ttd_admin_base64 = None
                 st.session_state.last_sent_spl = data_baru
                 st.toast(f"✅ {id_spl} Berhasil Dikirim!", icon="🚀")
                 st.balloons()
@@ -369,13 +342,13 @@ else:
             """)
             
             st.write("**Tanda Tangan Karyawan:**")
-            st.caption("1️⃣ Goreskan tanda tangan di bawah.\n2️⃣ Klik tombol **'📌 Simpan & Konfirmasi Tanda Tangan'**.")
+            st.caption("✏️ Goreskan tanda tangan Anda pada kotak di bawah ini.")
 
             canvas_user_key = f"canvas_user_{st.session_state.reset_canvas_user}"
             canvas_user = st_canvas(
                 stroke_width=3,
                 stroke_color="#000000",
-                background_color="#EEEEEE",
+                background_color="#FFFFFF",
                 height=130,
                 width=350,
                 drawing_mode="freedraw",
@@ -383,44 +356,36 @@ else:
                 key=canvas_user_key,
             )
 
+            ttd_user_base64 = get_canvas_base64(canvas_user)
+
             col_u1, col_u2 = st.columns([2, 2])
             with col_u1:
-                if st.button("📌 Simpan & Konfirmasi Tanda Tangan", key="confirm_user"):
-                    img_data, ada = process_canvas_data(canvas_user)
-                    if ada:
-                        st.session_state.saved_ttd_user_base64 = canvas_to_base64(img_data)
-                        st.success("✅ Tanda tangan berhasil dikonfirmasi!")
-                    else:
-                        st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan terlebih dahulu!")
+                if ttd_user_base64:
+                    st.success("✅ Tanda tangan terdeteksi!")
+                else:
+                    st.warning("⚠️ Belum ada tanda tangan di canvas.")
 
             with col_u2:
-                if st.button("🗑️ Hapus / Reset Tanda Tangan", key="reset_user"):
+                if st.button("🗑️ Reset Tanda Tangan", key="reset_user"):
                     st.session_state.reset_canvas_user += 1
-                    st.session_state.saved_ttd_user_base64 = None
                     st.rerun()
-
-            if st.session_state.saved_ttd_user_base64:
-                st.info("Status TTD Karyawan: **✅ Terkonfirmasi & Siap Disetujui**")
-            else:
-                st.warning("Status TTD Karyawan: **❌ Belum Dikonfirmasi**")
 
             st.divider()
 
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
-                if st.session_state.saved_ttd_user_base64:
+                if ttd_user_base64:
                     for item in st.session_state.db_spl:
                         if item["id"] == selected_id:
                             item["ttd_user"] = True
-                            item["ttd_user_img"] = st.session_state.saved_ttd_user_base64
+                            item["ttd_user_img"] = ttd_user_base64
                             item["status"] = "Selesai (ACC 2 Belah Pihak)"
                             break
                     save_data(st.session_state.db_spl)
                     st.session_state.reset_canvas_user += 1
-                    st.session_state.saved_ttd_user_base64 = None
                     st.toast(f"✅ SPL {selected_id} disetujui!", icon="🎉")
                     st.rerun()
                 else:
-                    st.error("⚠️ Tanda tangan belum dikonfirmasi. Klik tombol '📌 Simpan & Konfirmasi Tanda Tangan' terlebih dahulu.")
+                    st.error("⚠️ Silakan goreskan tanda tangan Anda terlebih dahulu!")
         else:
             st.info("Tidak ada perintah lembur baru yang menunggu tanda tangan Anda.")
 
