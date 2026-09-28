@@ -124,6 +124,13 @@ if "logged_in" not in st.session_state:
 if "last_sent_spl" not in st.session_state:
     st.session_state.last_sent_spl = None
 
+# COUNTER RESET CANVAS UNTUK CLEAR TTD
+if "reset_canvas_admin" not in st.session_state:
+    st.session_state.reset_canvas_admin = 0
+
+if "reset_canvas_user" not in st.session_state:
+    st.session_state.reset_canvas_user = 0
+
 # --- HALAMAN LOGIN ---
 if not st.session_state.logged_in:
     st.title("🔐 Login Sistem SPL Lembur")
@@ -208,8 +215,10 @@ else:
         instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
-        st.caption("💡 *Goreskan tanda tangan pada kotak abu-abu di bawah ini:*")
+        st.caption("💡 *Goreskan tanda tangan pada kotak di bawah. Jika salah coret, klik **Hapus Tanda Tangan**.*")
         
+        # CANVAS ADMIN DENGAN DYNAMIC KEY UNTUK CLEAR RESET
+        canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
         canvas_admin = st_canvas(
             stroke_width=3,
             stroke_color="#000000",
@@ -218,8 +227,16 @@ else:
             width=350,
             drawing_mode="freedraw",
             update_streamlit=True,
-            key="canvas_admin_safe",
+            key=canvas_admin_key,
         )
+
+        col_btn_a1, col_btn_a2 = st.columns([1, 4])
+        with col_btn_a1:
+            if st.button("🗑️ Hapus Tanda Tangan", key="clear_admin_ttd"):
+                st.session_state.reset_canvas_admin += 1
+                st.rerun()
+
+        st.divider()
 
         if st.button("🚀 Kirim Perintah Lembur", type="primary"):
             err_msg = []
@@ -260,10 +277,10 @@ else:
                     "status": "Menunggu TTD Karyawan"
                 }
                 st.session_state.db_spl.append(data_baru)
-                
-                # SIMPAN LANGSUNG KE FILE JSON (Semua User langsung bisa membaca file ini)
                 save_data(st.session_state.db_spl)
                 
+                # Reset canvas TTD setelah berhasil kirim
+                st.session_state.reset_canvas_admin += 1
                 st.session_state.last_sent_spl = data_baru
                 st.toast(f"✅ {id_spl} Berhasil Dikirim ke {nama_karyawan}!", icon="🚀")
                 st.balloons()
@@ -313,6 +330,10 @@ else:
             """)
             
             st.write("**Tanda Tangan Karyawan (Penerima Perintah):**")
+            st.caption("💡 *Goreskan tanda tangan pada kotak di bawah. Klik **Hapus Tanda Tangan** jika terjadi kesalahan.*")
+
+            # CANVAS USER DENGAN DYNAMIC KEY UNTUK CLEAR RESET
+            canvas_user_key = f"canvas_user_{st.session_state.reset_canvas_user}"
             canvas_user = st_canvas(
                 stroke_width=3,
                 stroke_color="#000000",
@@ -321,9 +342,15 @@ else:
                 width=350,
                 drawing_mode="freedraw",
                 update_streamlit=True,
-                key="canvas_user_safe",
+                key=canvas_user_key,
             )
-            
+
+            if st.button("🗑️ Hapus Tanda Tangan", key="clear_user_ttd"):
+                st.session_state.reset_canvas_user += 1
+                st.rerun()
+
+            st.divider()
+
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
                 ttd_user_ada = False
                 try:
@@ -341,6 +368,7 @@ else:
                             item["status"] = "Selesai (ACC 2 Belah Pihak)"
                             break
                     save_data(st.session_state.db_spl)
+                    st.session_state.reset_canvas_user += 1
                     st.toast(f"✅ SPL {selected_id} berhasil ditandatangani!", icon="🎉")
                     st.success(f"✅ SPL {selected_id} berhasil disetujui!")
                     st.rerun()
