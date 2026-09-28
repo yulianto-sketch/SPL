@@ -24,6 +24,10 @@ def generate_pdf(spl_data):
     
     # Detail SPL
     pdf.set_font("Arial", "", 11)
+    pdf.cell(50, 8, "Nama Atasan (Pemberi)", border=0)
+    pdf.cell(5, 8, ":", border=0)
+    pdf.cell(0, 8, f"{spl_data.get('nama_atasan', 'Atasan / Admin')}", border=0, new_x="LMARGIN", new_y="NEXT")
+
     pdf.cell(50, 8, "Nama Karyawan", border=0)
     pdf.cell(5, 8, ":", border=0)
     pdf.cell(0, 8, f"{spl_data['karyawan']}", border=0, new_x="LMARGIN", new_y="NEXT")
@@ -62,7 +66,9 @@ def generate_pdf(spl_data):
     pdf.cell(90, 6, ttd_admin_status, align="C")
     pdf.cell(90, 6, ttd_user_status, align="C", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.cell(90, 6, "( Atasan / Supervisor )", align="C")
+    # Nama TTD Atasan & Karyawan
+    nama_atasan_ttd = spl_data.get('nama_atasan', 'Atasan / Supervisor')
+    pdf.cell(90, 6, f"( {nama_atasan_ttd} )", align="C")
     pdf.cell(90, 6, f"( {spl_data['karyawan']} )", align="C", new_x="LMARGIN", new_y="NEXT")
     
     return bytes(pdf.output())
@@ -94,13 +100,11 @@ def save_data(data):
 
 # --- FUNGSI HITUNG DURASI JAM LEMBUR ---
 def hitung_durasi_jam(string_jam):
-    """Menghitung selisih jam dari format 'HH:MM - HH:MM'"""
     try:
         jam_mulai_str, jam_selesai_str = string_jam.split(" - ")
         t_mulai = datetime.datetime.strptime(jam_mulai_str.strip(), "%H:%M")
         t_selesai = datetime.datetime.strptime(jam_selesai_str.strip(), "%H:%M")
         
-        # Jika lewat tengah malam
         if t_selesai < t_mulai:
             t_selesai += datetime.timedelta(days=1)
             
@@ -163,13 +167,15 @@ else:
         
         col1, col2 = st.columns(2)
         with col1:
+            nama_atasan = st.text_input("Nama Atasan / Pemberi Perintah")
             nama_karyawan = st.text_input("Nama Karyawan yang Ditugaskan")
             departemen = st.selectbox("Departemen", ["Produksi", "Quality Control", "Warehouse", "HRD & GA", "IT", "Maintenance"])
-            tanggal = st.date_input("Tanggal Lembur", datetime.date.today())
         with col2:
+            tanggal = st.date_input("Tanggal Lembur", datetime.date.today())
             jam_mulai = st.time_input("Jam Mulai", datetime.time(17, 0))
             jam_selesai = st.time_input("Jam Selesai", datetime.time(20, 0))
-            instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
+            
+        instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
         st.caption("💡 *Goreskan tanda tangan pada kotak abu-abu di bawah ini:*")
@@ -187,6 +193,8 @@ else:
 
         if st.button("Kirim Perintah Lembur", type="primary"):
             err_msg = []
+            if not nama_atasan.strip():
+                err_msg.append("Nama Atasan belum diisi")
             if not nama_karyawan.strip():
                 err_msg.append("Nama Karyawan belum diisi")
             if not instruksi.strip():
@@ -210,6 +218,7 @@ else:
                 id_spl = f"SPL-{len(st.session_state.db_spl) + 1:03d}"
                 data_baru = {
                     "id": id_spl,
+                    "nama_atasan": nama_atasan,
                     "karyawan": nama_karyawan,
                     "departemen": departemen,
                     "tanggal": tanggal.strftime("%Y-%m-%d"),
@@ -222,7 +231,7 @@ else:
                 }
                 st.session_state.db_spl.append(data_baru)
                 save_data(st.session_state.db_spl)
-                st.success(f"✅ Berhasil menerbitkan {id_spl} untuk {nama_karyawan}!")
+                st.success(f"✅ Berhasil menerbitkan {id_spl} oleh {nama_atasan} untuk {nama_karyawan}!")
                 st.rerun()
 
         # --- MENU AJUKAN HAPUS DATA (ADMIN) ---
@@ -261,6 +270,7 @@ else:
             
             st.markdown(f"""
             **Nomor SPL:** `{spl_data['id']}`  
+            **Pemberi Perintah (Atasan):** {spl_data.get('nama_atasan', '-')}  
             **Untuk Karyawan:** {spl_data['karyawan']} ({spl_data['departemen']})  
             **Tanggal & Jam:** {spl_data['tanggal']} | {spl_data['jam']}  
             **Instruksi Lembur:** {spl_data['instruksi']}  
@@ -373,7 +383,8 @@ else:
                 col_detail, col_dl = st.columns([3, 1])
                 
                 with col_detail:
-                    st.write(f"**Departemen:** {spl['departemen']}")
+                    st.write(f"**Pemberi Perintah (Atasan):** {spl.get('nama_atasan', '-')}")
+                    st.write(f"**Karyawan:** {spl['karyawan']} ({spl['departemen']})")
                     st.write(f"**Jam Lembur:** {spl['jam']} ({durasi_text})")
                     st.write(f"**Instruksi Pekerjaan:** {spl['instruksi']}")
                     st.write(f"**TTD Atasan:** {'✅ Sudah' if spl.get('ttd_admin') else '❌ Belum'}")
