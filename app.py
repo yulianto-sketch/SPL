@@ -19,15 +19,26 @@ def get_canvas_base64(canvas_obj):
     if canvas_obj is None:
         return None
     try:
-        # Mengakses image_data tanpa memicu exception dari library
+        # Mengakses image_data
         img_data = getattr(canvas_obj, "image_data", None)
-        if img_data is not None and isinstance(img_data, np.ndarray):
-            alpha = img_data[:, :, 3]
-            if np.sum(alpha > 0) > 10:  # Ada goresan minimal 10 piksel
-                img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
-                buffered = BytesIO()
-                img.save(buffered, format="PNG")
-                return base64.b64encode(buffered.getvalue()).decode('utf-8')
+        if img_data is not None and isinstance(img_data, np.ndarray) and img_data.size > 0:
+            # Pengecekan 1: Menggunakan Alpha channel jika tersedia
+            if img_data.shape[2] == 4:
+                alpha = img_data[:, :, 3]
+                # Jika ada piksel tidak transparan sama sekali
+                if np.any(alpha > 0):
+                    img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+                    buffered = BytesIO()
+                    img.save(buffered, format="PNG")
+                    return base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            # Pengecekan 2: Fallback jika format RGB (memeriksa piksel bukan putih polos)
+            elif img_data.shape[2] == 3:
+                if np.any(img_data < 255):
+                    img = Image.fromarray(img_data.astype('uint8'), 'RGB')
+                    buffered = BytesIO()
+                    img.save(buffered, format="PNG")
+                    return base64.b64encode(buffered.getvalue()).decode('utf-8')
     except Exception:
         pass
     return None
@@ -234,7 +245,7 @@ else:
         instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan:**")
-        st.caption("✏️ Goreskan tanda tangan Anda pada kotak di bawah ini.")
+        st.caption("✏️ Goreskan tanda tangan Anda pada kotak di bawah ini. Pastikan Anda mengklik di luar area canvas setelah menggambar.")
         
         canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
         canvas_admin = st_canvas(
@@ -273,7 +284,7 @@ else:
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
             if not ttd_admin_base64:
-                err_msg.append("Tanda tangan Atasan belum diisi di canvas")
+                err_msg.append("Tanda tangan Atasan belum diisi di canvas (silakan goreskan tanda tangan terlebih dahulu)")
 
             if err_msg:
                 st.error("⚠️ " + " | ".join(err_msg))
