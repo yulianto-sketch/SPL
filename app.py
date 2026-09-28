@@ -14,30 +14,22 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI DETEKSI TANDA TANGAN BERBASIS PIKSEL (PERBAIKAN ERROR) ---
+# --- FUNGSI DETEKSI TANDA TANGAN AMAN ---
 def process_canvas_data(canvas_obj):
-    """
-    Mengambil array image_data dari canvas dengan aman tanpa memicu RuntimeError.
-    """
     if canvas_obj is None:
         return None, False
-    
     try:
-        # Mengakses image_data dibungkus try-except untuk menangkap RuntimeError
         img_data = canvas_obj.image_data
         if img_data is not None and isinstance(img_data, np.ndarray):
-            # Cek channel Alpha (transparansi)
-            alpha_channel = img_data[:, :, 3]
-            # Jika ada lebih dari 10 piksel terisi
-            if np.count_nonzero(alpha_channel) > 10:
+            # Cek jika ada piksel garis (Alpha > 0)
+            alpha = img_data[:, :, 3]
+            if np.sum(alpha > 0) > 20:  # Minimal 20 piksel terisi
                 return img_data, True
-    except (RuntimeError, AttributeError, Exception):
-        # Tangkap RuntimeError dari streamlit_drawable_canvas jika canvas masih kosong
+    except Exception:
         pass
-
     return None, False
 
-# --- FUNGSI CONVERT CANVAS PNG ARRAY KE BASE64 STRING ---
+# --- FUNGSI CONVERT PNG ARRAY KE BASE64 ---
 def canvas_to_base64(image_data):
     if image_data is None:
         return None
@@ -49,7 +41,7 @@ def canvas_to_base64(image_data):
     except Exception:
         return None
 
-# --- FUNGSI HELPER UNTUK SIMPAN TEMP IMAGE UNTUK FPDF ---
+# --- HELPER BASE64 TO FILE ---
 def base64_to_temp_file(base64_str, filename):
     try:
         img_data = base64.b64decode(base64_str)
@@ -59,19 +51,17 @@ def base64_to_temp_file(base64_str, filename):
     except Exception:
         return None
 
-# --- FUNGSI GENERATE PDF SPL ---
+# --- GENERATE PDF ---
 def generate_pdf(spl_data):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
     
-    # Header Document
     pdf.cell(0, 10, "SURAT PERINTAH LEMBUR (SPL)", new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.set_font("Arial", "", 10)
     pdf.cell(0, 5, f"Nomor Dokumen: {spl_data['id']}", new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.ln(10)
     
-    # Detail SPL
     pdf.set_font("Arial", "", 11)
     pdf.cell(50, 8, "Nama Atasan (Pemberi)", border=0)
     pdf.cell(5, 8, ":", border=0)
@@ -101,14 +91,12 @@ def generate_pdf(spl_data):
     
     pdf.ln(10)
     
-    # Status & Gambar Tanda Tangan
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Pemberi Perintah (Atasan)", align="C")
     pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", new_x="LMARGIN", new_y="NEXT")
     
     y_before_ttd = pdf.get_y()
     
-    # 1. Gambar TTD Atasan
     if spl_data.get("ttd_admin_img"):
         file_admin = f"temp_admin_{spl_data['id']}.png"
         if base64_to_temp_file(spl_data["ttd_admin_img"], file_admin):
@@ -116,7 +104,6 @@ def generate_pdf(spl_data):
             if os.path.exists(file_admin):
                 os.remove(file_admin)
 
-    # 2. Gambar TTD Karyawan
     if spl_data.get("ttd_user_img"):
         file_user = f"temp_user_{spl_data['id']}.png"
         if base64_to_temp_file(spl_data["ttd_user_img"], file_user):
@@ -125,8 +112,6 @@ def generate_pdf(spl_data):
                 os.remove(file_user)
 
     pdf.ln(22)
-    
-    # Nama TTD
     pdf.set_font("Arial", "", 10)
     nama_atasan_ttd = spl_data.get('nama_atasan', 'Atasan / Supervisor')
     pdf.cell(90, 6, f"( {nama_atasan_ttd} )", align="C")
@@ -134,13 +119,12 @@ def generate_pdf(spl_data):
     
     return bytes(pdf.output())
 
-# --- FUNGSI DATABASE ---
+# --- DATABASE LOAD/SAVE ---
 def load_data():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
-                
             today = datetime.date.today()
             filtered_data = []
             for item in data:
@@ -164,10 +148,8 @@ def hitung_durasi_jam(string_jam):
         jam_mulai_str, jam_selesai_str = string_jam.split(" - ")
         t_mulai = datetime.datetime.strptime(jam_mulai_str.strip(), "%H:%M")
         t_selesai = datetime.datetime.strptime(jam_selesai_str.strip(), "%H:%M")
-        
         if t_selesai < t_mulai:
             t_selesai += datetime.timedelta(days=1)
-            
         selisih = t_selesai - t_mulai
         return selisih.total_seconds() / 3600.0
     except Exception:
@@ -175,7 +157,7 @@ def hitung_durasi_jam(string_jam):
 
 st.session_state.db_spl = load_data()
 
-# Session states untuk penyimpanan TTD sementara
+# Session State Initialization
 if "saved_ttd_admin_base64" not in st.session_state:
     st.session_state.saved_ttd_admin_base64 = None
 
@@ -218,16 +200,16 @@ if not st.session_state.logged_in:
                 st.session_state.username = "Karyawan / User"
                 st.rerun()
             else:
-                st.error("Username atau Password salah! (Hint: admin/123 atau user/1234)")
+                st.error("Username atau Password salah!")
 
 # --- HALAMAN UTAMA ---
 else:
     st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.write(f"**Role:** {st.session_state.role}")
     
-    if st.sidebar.button("🔄 Perbarui Data / Refresh"):
+    if st.sidebar.button("🔄 Perbarui Data"):
         st.session_state.db_spl = load_data()
-        st.toast("Data berhasil diperbarui!", icon="🔄")
+        st.toast("Data diperbarui!", icon="🔄")
         st.rerun()
         
     if st.sidebar.button("Logout"):
@@ -239,7 +221,6 @@ else:
         st.rerun()
 
     st.title("📝 Surat Perintah Lembur (SPL)")
-    st.caption("🗓️ *Histori tersimpan otomatis selama 3 bulan terakhir*")
     st.divider()
 
     # ==========================================
@@ -251,18 +232,9 @@ else:
         if st.session_state.last_sent_spl:
             spl_sent = st.session_state.last_sent_spl
             st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
+            st.info(f"Nomor Dokumen: `{spl_sent['id']}` | Karyawan: {spl_sent['karyawan']} | Status: Menunggu TTD Karyawan")
             
-            st.info(f"""
-            ### 📩 Ringkasan SPL Terkirim:
-            * **Nomor Dokumen:** `{spl_sent['id']}`
-            * **Nama Atasan:** {spl_sent['nama_atasan']}
-            * **Nama Karyawan:** {spl_sent['karyawan']} ({spl_sent['departemen']})
-            * **Tanggal & Jam Lembur:** {spl_sent['tanggal']} | {spl_sent['jam']}
-            * **Instruksi Pekerjaan:** {spl_sent['instruksi']}
-            * **Status:** ⏳ Menunggu TTD / Konfirmasi dari Karyawan
-            """)
-            
-            if st.button("➕ Buat SPL Baru"):
+            if st.button("➕ Buat SPL Baru Lagi"):
                 st.session_state.last_sent_spl = None
                 st.session_state.saved_ttd_admin_base64 = None
                 st.rerun()
@@ -280,8 +252,8 @@ else:
             
         instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
-        st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
-        st.caption("💡 *Goreskan tanda tangan pada kotak di bawah.*")
+        st.write("**Tanda Tangan Atasan:**")
+        st.caption("1️⃣ Goreskan tanda tangan pada kotak di bawah.\n2️⃣ Klik tombol **'📌 Simpan & Konfirmasi Tanda Tangan'**.")
         
         canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
         canvas_admin = st_canvas(
@@ -295,26 +267,27 @@ else:
             key=canvas_admin_key,
         )
 
-        col_btn_a1, col_btn_a2 = st.columns([2, 3])
-        with col_btn_a1:
-            if st.button("📌 Konfirmasi Tanda Tangan", key="confirm_admin_ttd"):
-                admin_img_data, ttd_ada = process_canvas_data(canvas_admin)
-                if ttd_ada:
-                    st.session_state.saved_ttd_admin_base64 = canvas_to_base64(admin_img_data)
-                    st.success("Tanda tangan berhasil tersimpan!")
+        col_a1, col_a2 = st.columns([2, 2])
+        with col_a1:
+            if st.button("📌 Simpan & Konfirmasi Tanda Tangan", key="confirm_admin"):
+                img_data, ada = process_canvas_data(canvas_admin)
+                if ada:
+                    st.session_state.saved_ttd_admin_base64 = canvas_to_base64(img_data)
+                    st.success("✅ Tanda tangan berhasil dikonfirmasi!")
                 else:
-                    st.error("Tanda tangan belum terdeteksi pada kotak!")
-                    
-        with col_btn_a2:
-            if st.button("🗑️ Hapus Tanda Tangan", key="clear_admin_ttd"):
+                    st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan terlebih dahulu!")
+
+        with col_a2:
+            if st.button("🗑️ Hapus / Reset Tanda Tangan", key="reset_admin"):
                 st.session_state.reset_canvas_admin += 1
                 st.session_state.saved_ttd_admin_base64 = None
                 st.rerun()
 
-        # Deteksi otomatis langsung dari canvas jika pengguna belum menekan tombol konfirmasi
-        admin_img_data, ttd_ada = process_canvas_data(canvas_admin)
-        if ttd_ada:
-            st.session_state.saved_ttd_admin_base64 = canvas_to_base64(admin_img_data)
+        # Indikator Status TTD
+        if st.session_state.saved_ttd_admin_base64:
+            st.info("Status TTD Atasan: **✅ Terkonfirmasi & Siap Dikirim**")
+        else:
+            st.warning("Status TTD Atasan: **❌ Belum Dikonfirmasi**")
 
         st.divider()
 
@@ -327,10 +300,10 @@ else:
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
             if not st.session_state.saved_ttd_admin_base64:
-                err_msg.append("Tanda tangan belum digoreskan/dikonfirmasi")
+                err_msg.append("Tanda tangan belum disimpan & dikonfirmasi (klik tombol '📌 Simpan & Konfirmasi Tanda Tangan' dulu)")
 
             if err_msg:
-                st.error("⚠️ Gagal mengirim! " + " | ".join(err_msg))
+                st.error("⚠️ " + " | ".join(err_msg))
             else:
                 id_spl = f"SPL-{len(st.session_state.db_spl) + 1:03d}"
                 data_baru = {
@@ -354,19 +327,17 @@ else:
                 st.session_state.reset_canvas_admin += 1
                 st.session_state.saved_ttd_admin_base64 = None
                 st.session_state.last_sent_spl = data_baru
-                st.toast(f"✅ {id_spl} Berhasil Dikirim ke {nama_karyawan}!", icon="🚀")
+                st.toast(f"✅ {id_spl} Berhasil Dikirim!", icon="🚀")
                 st.balloons()
                 st.rerun()
 
-        # --- MENU AJUKAN HAPUS DATA (ADMIN) ---
+        # --- MENU HAPUS ---
         st.divider()
-        st.subheader("🗑️ 2. Permohonan Hapus SPL (Butuh ACC Karyawan)")
-        
+        st.subheader("🗑️ 2. Permohonan Hapus SPL")
         spl_aktif = [s for s in st.session_state.db_spl if not s.get("req_delete", False)]
         if spl_aktif:
             list_id_del = [s["id"] for s in spl_aktif]
             id_to_req_del = st.selectbox("Pilih Nomor SPL yang ingin dihapus:", list_id_del, key="select_del_admin")
-            
             if st.button("Ajukan Penghapusan ke Karyawan"):
                 for item in st.session_state.db_spl:
                     if item["id"] == id_to_req_del:
@@ -374,10 +345,8 @@ else:
                         item["status"] = "Menunggu Persetujuan Hapus Karyawan"
                         break
                 save_data(st.session_state.db_spl)
-                st.warning(f"Permohonan hapus untuk {id_to_req_del} telah dikirim ke Karyawan.")
+                st.warning(f"Permohonan hapus untuk {id_to_req_del} dikirim ke Karyawan.")
                 st.rerun()
-        else:
-            st.caption("Tidak ada data SPL yang bisa diajukan hapus.")
 
     # ==========================================
     # ROLE USER (KARYAWAN)
@@ -393,16 +362,14 @@ else:
             spl_data = next(s for s in spl_pending if s["id"] == selected_id)
             
             st.markdown(f"""
-            **Nomor SPL:** `{spl_data['id']}`  
-            **Pemberi Perintah (Atasan):** {spl_data.get('nama_atasan', '-')}  
-            **Untuk Karyawan:** {spl_data['karyawan']} ({spl_data['departemen']})  
+            **Nomor SPL:** `{spl_data['id']}` | **Atasan:** {spl_data.get('nama_atasan', '-')}  
+            **Karyawan:** {spl_data['karyawan']} ({spl_data['departemen']})  
             **Tanggal & Jam:** {spl_data['tanggal']} | {spl_data['jam']}  
-            **Instruksi Lembur:** {spl_data['instruksi']}  
-            **Status TTD Atasan:** ✅ Sudah ditandatangani Atasan
+            **Instruksi:** {spl_data['instruksi']}
             """)
             
-            st.write("**Tanda Tangan Karyawan (Penerima Perintah):**")
-            st.caption("💡 *Goreskan tanda tangan pada kotak di bawah.*")
+            st.write("**Tanda Tangan Karyawan:**")
+            st.caption("1️⃣ Goreskan tanda tangan di bawah.\n2️⃣ Klik tombol **'📌 Simpan & Konfirmasi Tanda Tangan'**.")
 
             canvas_user_key = f"canvas_user_{st.session_state.reset_canvas_user}"
             canvas_user = st_canvas(
@@ -416,25 +383,26 @@ else:
                 key=canvas_user_key,
             )
 
-            col_btn_u1, col_btn_u2 = st.columns([2, 3])
-            with col_btn_u1:
-                if st.button("📌 Konfirmasi Tanda Tangan", key="confirm_user_ttd"):
-                    user_img_data, ttd_ada = process_canvas_data(canvas_user)
-                    if ttd_ada:
-                        st.session_state.saved_ttd_user_base64 = canvas_to_base64(user_img_data)
-                        st.success("Tanda tangan berhasil tersimpan!")
+            col_u1, col_u2 = st.columns([2, 2])
+            with col_u1:
+                if st.button("📌 Simpan & Konfirmasi Tanda Tangan", key="confirm_user"):
+                    img_data, ada = process_canvas_data(canvas_user)
+                    if ada:
+                        st.session_state.saved_ttd_user_base64 = canvas_to_base64(img_data)
+                        st.success("✅ Tanda tangan berhasil dikonfirmasi!")
                     else:
-                        st.error("Tanda tangan belum terdeteksi pada kotak!")
+                        st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan terlebih dahulu!")
 
-            with col_btn_u2:
-                if st.button("🗑️ Hapus Tanda Tangan", key="clear_user_ttd"):
+            with col_u2:
+                if st.button("🗑️ Hapus / Reset Tanda Tangan", key="reset_user"):
                     st.session_state.reset_canvas_user += 1
                     st.session_state.saved_ttd_user_base64 = None
                     st.rerun()
 
-            user_img_data, ttd_ada = process_canvas_data(canvas_user)
-            if ttd_ada:
-                st.session_state.saved_ttd_user_base64 = canvas_to_base64(user_img_data)
+            if st.session_state.saved_ttd_user_base64:
+                st.info("Status TTD Karyawan: **✅ Terkonfirmasi & Siap Disetujui**")
+            else:
+                st.warning("Status TTD Karyawan: **❌ Belum Dikonfirmasi**")
 
             st.divider()
 
@@ -449,39 +417,34 @@ else:
                     save_data(st.session_state.db_spl)
                     st.session_state.reset_canvas_user += 1
                     st.session_state.saved_ttd_user_base64 = None
-                    st.toast(f"✅ SPL {selected_id} berhasil ditandatangani!", icon="🎉")
-                    st.success(f"✅ SPL {selected_id} berhasil disetujui!")
+                    st.toast(f"✅ SPL {selected_id} disetujui!", icon="🎉")
                     st.rerun()
                 else:
-                    st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan pada kotak terlebih dahulu.")
+                    st.error("⚠️ Tanda tangan belum dikonfirmasi. Klik tombol '📌 Simpan & Konfirmasi Tanda Tangan' terlebih dahulu.")
         else:
             st.info("Tidak ada perintah lembur baru yang menunggu tanda tangan Anda.")
 
-        # --- MENU PERSETUJUAN HAPUS (USER) ---
+        # --- MENU PERSETUJUAN HAPUS ---
         st.divider()
         st.subheader("⚠️ 2. Permohonan Hapus dari Atasan")
-        
         spl_req_delete = [s for s in st.session_state.db_spl if s.get("req_delete", False)]
         if spl_req_delete:
-            st.warning("Atasan meminta untuk menghapus data SPL berikut. Klik setuju jika konfirmasi hapus.")
             for s in spl_req_delete:
                 col_info, col_btn = st.columns([3, 1])
                 with col_info:
-                    st.write(f"📌 **{s['id']}** - {s['karyawan']} ({s['tanggal']}) | *{s['instruksi']}*")
+                    st.write(f"📌 **{s['id']}** - {s['karyawan']} ({s['tanggal']})")
                 with col_btn:
                     if st.button(f"Setujui Hapus {s['id']}", key=f"btn_del_{s['id']}"):
                         st.session_state.db_spl = [item for item in st.session_state.db_spl if item["id"] != s["id"]]
                         save_data(st.session_state.db_spl)
-                        st.success(f"Data {s['id']} telah resmi dihapus permanen!")
+                        st.success(f"Data {s['id']} dihapus permanen!")
                         st.rerun()
-        else:
-            st.caption("Tidak ada permohonan hapus dari Atasan.")
 
     # ==========================================
-    # FILTER PERIODE & TOTAL JAM LEMBUR
+    # FILTER PERIODE & ARSIP PDF
     # ==========================================
     st.divider()
-    st.subheader("📊 Pencarian & Total Jam Lembur Berdasarkan Periode")
+    st.subheader("📊 Pencarian & Total Jam Lembur")
     
     col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
     with col_f1:
@@ -489,7 +452,7 @@ else:
     with col_f2:
         end_date = st.date_input("Tanggal Selesai", datetime.date.today())
     with col_f3:
-        filter_nama = st.text_input("Filter Nama Karyawan (Opsional)", "")
+        filter_nama = st.text_input("Filter Nama Karyawan", "")
 
     data_filtered = []
     total_jam_periode = 0.0
@@ -513,25 +476,17 @@ else:
     with col_m2:
         st.metric("Total Jam Lembur Periode Ini", f"{total_jam_periode:.1f} Jam")
 
-    # ==========================================
-    # TABEL ARSIP & DOWNLOAD PDF
-    # ==========================================
     st.subheader("📂 Detail Arsip & Download PDF SPL")
-    
     if data_filtered:
         for spl in reversed(data_filtered):
             durasi_text = f"{spl.get('durasi_jam', 0):.1f} Jam"
             with st.expander(f"📄 {spl['id']} - {spl['karyawan']} ({spl['tanggal']}) | {durasi_text} - Status: {spl['status']}"):
                 col_detail, col_dl = st.columns([3, 1])
-                
                 with col_detail:
-                    st.write(f"**Pemberi Perintah (Atasan):** {spl.get('nama_atasan', '-')}")
+                    st.write(f"**Pemberi Perintah:** {spl.get('nama_atasan', '-')}")
                     st.write(f"**Karyawan:** {spl['karyawan']} ({spl['departemen']})")
                     st.write(f"**Jam Lembur:** {spl['jam']} ({durasi_text})")
-                    st.write(f"**Instruksi Pekerjaan:** {spl['instruksi']}")
-                    st.write(f"**TTD Atasan:** {'✅ Sudah' if spl.get('ttd_admin') else '❌ Belum'}")
-                    st.write(f"**TTD Karyawan:** {'✅ Sudah' if spl.get('ttd_user') else '❌ Belum'}")
-                
+                    st.write(f"**Instruksi:** {spl['instruksi']}")
                 with col_dl:
                     pdf_bytes = generate_pdf(spl)
                     st.download_button(
@@ -541,5 +496,3 @@ else:
                         mime="application/pdf",
                         key=f"dl_pdf_{spl['id']}"
                     )
-    else:
-        st.info("Tidak ada data SPL yang sesuai dengan periode atau nama yang dipilih.")
