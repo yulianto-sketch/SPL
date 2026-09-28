@@ -14,22 +14,30 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI AMAN UNTUK MEMERIKSA DAN MENGAMBIL GAMBAR TTD ---
+# --- FUNGSI AMAN DAN PRESISI UNTUK MEMERIKSA TANDA TANGAN ---
 def get_canvas_image_safely(canvas_obj):
-    """Mengambil array image_data secara aman dari canvas tanpa memicu RuntimeError."""
+    """
+    Mengambil array image_data secara aman dari canvas dan memverifikasi
+    apakah pengguna benar-benar menggambar sesuatu pada piksel canvas.
+    """
     if canvas_obj is None:
         return None, False
+    
     try:
-        # Cek json_data terlebih dahulu untuk memastikan ada goresan/objek
-        if canvas_obj.json_data is not None:
-            objects = canvas_obj.json_data.get("objects", [])
-            if len(objects) > 0:
-                # Mengambil image_data di dalam try-except
-                img_data = canvas_obj.image_data
-                if img_data is not None:
-                    return img_data, True
+        # Mengakses image_data di dalam try-except untuk mencegah RuntimeError
+        img_data = canvas_obj.image_data
+        
+        if img_data is not None and isinstance(img_data, np.ndarray):
+            # Memeriksa channel Alpha (transparansi) dari gambar RGBA
+            alpha_channel = img_data[:, :, 3]
+            
+            # Jika ada lebih dari 10 piksel yang digoreskan
+            if np.count_nonzero(alpha_channel) > 10:
+                return img_data, True
+
     except Exception:
         pass
+
     return None, False
 
 # --- FUNGSI CONVERT CANVAS PNG ARRAY KE BASE64 STRING ---
@@ -297,7 +305,7 @@ else:
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
 
-            # AMBIL DATA CANVAS SECARA AMAN
+            # AMBIL DATA CANVAS SECARA AMAN TERMASUK DETEKSI PIKSEL
             admin_img_data, ttd_ada = get_canvas_image_safely(canvas_admin)
             ttd_admin_base64 = canvas_to_base64(admin_img_data) if ttd_ada else None
 
