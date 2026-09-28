@@ -169,7 +169,7 @@ else:
         with col1:
             nama_atasan = st.text_input("Nama Atasan / Pemberi Perintah")
             nama_karyawan = st.text_input("Nama Karyawan yang Ditugaskan")
-            departemen = st.selectbox("Departemen", ["Produksi", "Quality Control", "Warehouse", "HRD & GA", "IT", "Maintenance"])
+            departemen = st.selectbox("Departemen", ["Driver"])
         with col2:
             tanggal = st.date_input("Tanggal Lembur", datetime.date.today())
             jam_mulai = st.time_input("Jam Mulai", datetime.time(17, 0))
