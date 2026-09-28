@@ -75,51 +75,50 @@ else:
     if st.session_state.role == "Admin":
         st.subheader("👨‍💼 1. Buat Perintah Lembur Baru")
         
-        with st.form("form_buat_spl"):
-            col1, col2 = st.columns(2)
-            with col1:
-                nama_karyawan = st.text_input("Nama Karyawan yang Ditugaskan")
-                departemen = st.selectbox("Departemen", ["Produksi", "Quality Control", "Warehouse", "HRD & GA", "IT", "Maintenance"])
-                tanggal = st.date_input("Tanggal Lembur", datetime.date.today())
-            with col2:
-                jam_mulai = st.time_input("Jam Mulai", datetime.time(17, 0))
-                jam_selesai = st.time_input("Jam Selesai", datetime.time(20, 0))
-                instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
+        # Form Input Biasa (Tanpa st.form agar canvas lancar)
+        col1, col2 = st.columns(2)
+        with col1:
+            nama_karyawan = st.text_input("Nama Karyawan yang Ditugaskan")
+            departemen = st.selectbox("Departemen", ["Produksi", "Quality Control", "Warehouse", "HRD & GA", "IT", "Maintenance"])
+            tanggal = st.date_input("Tanggal Lembur", datetime.date.today())
+        with col2:
+            jam_mulai = st.time_input("Jam Mulai", datetime.time(17, 0))
+            jam_selesai = st.time_input("Jam Selesai", datetime.time(20, 0))
+            instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
-            st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
-            canvas_admin = st_canvas(
-                stroke_width=2,
-                stroke_color="#000000",
-                background_color="#EEEEEE",
-                height=120,
-                width=350,
-                drawing_mode="freedraw",
-                key="canvas_admin",
-            )
+        st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
+        canvas_admin = st_canvas(
+            stroke_width=2,
+            stroke_color="#000000",
+            background_color="#EEEEEE",
+            height=120,
+            width=350,
+            drawing_mode="freedraw",
+            key="canvas_admin",
+        )
 
-            submit_spl = st.form_submit_button("Kirim Perintah Lembur")
-
-            if submit_spl:
-                if nama_karyawan and instruksi and canvas_admin.image_data is not None:
-                    id_spl = f"SPL-{len(st.session_state.db_spl) + 1:03d}"
-                    data_baru = {
-                        "id": id_spl,
-                        "karyawan": nama_karyawan,
-                        "departemen": departemen,
-                        "tanggal": tanggal.strftime("%Y-%m-%d"),
-                        "jam": f"{jam_mulai.strftime('%H:%M')} - {jam_selesai.strftime('%H:%M')}",
-                        "instruksi": instruksi,
-                        "ttd_admin": True,
-                        "ttd_user": False,
-                        "req_delete": False,
-                        "status": "Menunggu TTD Karyawan"
-                    }
-                    st.session_state.db_spl.append(data_baru)
-                    save_data(st.session_state.db_spl)
-                    st.success(f"Berhasil menerbitkan {id_spl} untuk {nama_karyawan}! Data tersimpan.")
-                    st.rerun()
-                else:
-                    st.warning("Mohon lengkapi nama, instruksi, dan tanda tangan.")
+        if st.button("Kirim Perintah Lembur", type="primary"):
+            has_drawing = canvas_admin.image_data is not None and canvas_admin.image_data.any()
+            if nama_karyawan and instruksi and has_drawing:
+                id_spl = f"SPL-{len(st.session_state.db_spl) + 1:03d}"
+                data_baru = {
+                    "id": id_spl,
+                    "karyawan": nama_karyawan,
+                    "departemen": departemen,
+                    "tanggal": tanggal.strftime("%Y-%m-%d"),
+                    "jam": f"{jam_mulai.strftime('%H:%M')} - {jam_selesai.strftime('%H:%M')}",
+                    "instruksi": instruksi,
+                    "ttd_admin": True,
+                    "ttd_user": False,
+                    "req_delete": False,
+                    "status": "Menunggu TTD Karyawan"
+                }
+                st.session_state.db_spl.append(data_baru)
+                save_data(st.session_state.db_spl)
+                st.success(f"Berhasil menerbitkan {id_spl} untuk {nama_karyawan}! Data tersimpan.")
+                st.rerun()
+            else:
+                st.warning("Mohon lengkapi nama, instruksi, dan tanda tangan.")
 
         # --- MENU AJUKAN HAPUS DATA (ADMIN) ---
         st.divider()
@@ -148,7 +147,6 @@ else:
     elif st.session_state.role == "User":
         st.subheader("👷 1. Tanda Tangan Penerimaan SPL")
         
-        # Cari SPL yang belum ditandatangani dan tidak sedang diajukan hapus
         spl_pending = [s for s in st.session_state.db_spl if not s["ttd_user"] and not s.get("req_delete", False)]
         
         if spl_pending:
@@ -175,15 +173,19 @@ else:
                 key="canvas_user",
             )
             
-            if st.button("Konfirmasi & Tanda Tangan SPL"):
-                for item in st.session_state.db_spl:
-                    if item["id"] == selected_id:
-                        item["ttd_user"] = True
-                        item["status"] = "Selesai (ACC 2 Belah Pihak)"
-                        break
-                save_data(st.session_state.db_spl)
-                st.success(f"SPL {selected_id} berhasil disetujui! Bukti tersimpan permanen.")
-                st.rerun()
+            if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
+                has_drawing_user = canvas_user.image_data is not None and canvas_user.image_data.any()
+                if has_drawing_user:
+                    for item in st.session_state.db_spl:
+                        if item["id"] == selected_id:
+                            item["ttd_user"] = True
+                            item["status"] = "Selesai (ACC 2 Belah Pihak)"
+                            break
+                    save_data(st.session_state.db_spl)
+                    st.success(f"SPL {selected_id} berhasil disetujui! Bukti tersimpan permanen.")
+                    st.rerun()
+                else:
+                    st.warning("Mohon bubuhkan tanda tangan sebelum mengonfirmasi.")
         else:
             st.info("Tidak ada perintah lembur baru yang menunggu tanda tangan Anda.")
 
@@ -200,7 +202,6 @@ else:
                     st.write(f"📌 **{s['id']}** - {s['karyawan']} ({s['tanggal']}) | *{s['instruksi']}*")
                 with col_btn:
                     if st.button(f"Setujui Hapus {s['id']}", key=f"btn_del_{s['id']}"):
-                        # Hapus permanen dari list
                         st.session_state.db_spl = [item for item in st.session_state.db_spl if item["id"] != s["id"]]
                         save_data(st.session_state.db_spl)
                         st.success(f"Data {s['id']} telah resmi dihapus permanen!")
@@ -209,7 +210,7 @@ else:
             st.caption("Tidak ada permohonan hapus dari Atasan.")
 
     # ==========================================
-    # TABEL ARSIP BUKTI (BISA DILIHAT KEDUANYA)
+    # TABEL ARSIP BUKTI
     # ==========================================
     st.divider()
     st.subheader("📂 Arsip Bukti Pengajuan SPL")
