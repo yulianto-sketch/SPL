@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import json
 import os
+import time
 from fpdf import FPDF
 
 st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wide")
@@ -121,8 +122,8 @@ if "logged_in" not in st.session_state:
     st.session_state.role = None
     st.session_state.username = ""
 
-if "last_sent_spl" not in st.session_state:
-    st.session_state.last_sent_spl = None
+if "show_success_notif" not in st.session_state:
+    st.session_state.show_success_notif = False
 
 # --- HALAMAN LOGIN ---
 if not st.session_state.logged_in:
@@ -161,7 +162,7 @@ else:
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.role = None
-        st.session_state.last_sent_spl = None
+        st.session_state.show_success_notif = False
         st.rerun()
 
     st.title("📝 Surat Perintah Lembur (SPL)")
@@ -173,15 +174,14 @@ else:
     if st.session_state.role == "Admin":
         st.subheader("👨‍💼 1. Buat Perintah Lembur Baru")
         
-        if st.session_state.last_sent_spl:
-            spl_sent = st.session_state.last_sent_spl
-            st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
-            st.info(f"Nomor Dokumen: `{spl_sent['id']}` | Karyawan: {spl_sent['karyawan']} | Status: Menunggu Konfirmasi Karyawan")
-            
-            if st.button("➕ Buat SPL Baru Lagi"):
-                st.session_state.last_sent_spl = None
-                st.rerun()
-            st.divider()
+        # --- NOTIFIKASI SEMENTARA (HILANG DALAM 2 DETIK) ---
+        if st.session_state.show_success_notif:
+            notif_container = st.empty()
+            with notif_container.container():
+                st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
+            time.sleep(2)
+            notif_container.empty()
+            st.session_state.show_success_notif = False
 
         col1, col2 = st.columns(2)
         with col1:
@@ -225,9 +225,8 @@ else:
                 st.session_state.db_spl.append(data_baru)
                 save_data(st.session_state.db_spl)
                 
-                st.session_state.last_sent_spl = data_baru
-                st.toast(f"✅ {id_spl} Berhasil Dikirim!", icon="🚀")
-                st.balloons()
+                st.session_state.show_success_notif = True
+                st.toast(f"🚀 {id_spl} Terkirim!", icon="✅")
                 st.rerun()
 
         # --- MENU HAPUS ---
@@ -253,6 +252,7 @@ else:
     elif st.session_state.role == "User":
         st.subheader("👷 1. Konfirmasi Penerimaan SPL")
         
+        # Hanya tampilkan SPL yang BELUM dikonfirmasi user
         spl_pending = [s for s in st.session_state.db_spl if not s.get("confirmed_user", False) and not s.get("req_delete", False)]
         
         if spl_pending:
@@ -276,7 +276,12 @@ else:
                         item["status"] = "Selesai (Disetujui secara Elektronik)"
                         break
                 save_data(st.session_state.db_spl)
-                st.toast(f"✅ SPL {selected_id} disetujui!", icon="🎉")
+                
+                # Tampilkan notifikasi singkat 2 detik lalu hilangkan tampilan
+                notif_user = st.empty()
+                notif_user.success(f"🎉 SPL {selected_id} Berhasil Dikonfirmasi & Disetujui!")
+                time.sleep(2)
+                notif_user.empty()
                 st.rerun()
         else:
             st.info("Tidak ada perintah lembur baru yang menunggu konfirmasi Anda.")
