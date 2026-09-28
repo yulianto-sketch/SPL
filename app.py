@@ -9,7 +9,7 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI SIMPAN & BACA DATA (PERMANEN KE JSON) ---
+# --- FUNGSI SIMPAN & BACA DATA ---
 def load_data():
     if os.path.exists(DB_FILE):
         try:
@@ -23,7 +23,7 @@ def save_data(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# Inisialisasi Session State Data
+# Inisialisasi Session State
 if "db_spl" not in st.session_state:
     st.session_state.db_spl = load_data()
 
@@ -58,7 +58,6 @@ if not st.session_state.logged_in:
 
 # --- HALAMAN UTAMA ---
 else:
-    # Sidebar Logout
     st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.write(f"**Role:** {st.session_state.role}")
     if st.sidebar.button("Logout"):
@@ -86,26 +85,42 @@ else:
             instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
+        st.caption("💡 *Silakan tanda tangan di kotak abu-abu bawah ini:*")
+        
         canvas_admin = st_canvas(
-            stroke_width=2,
+            stroke_width=3,
             stroke_color="#000000",
             background_color="#EEEEEE",
-            height=120,
+            height=130,
             width=350,
             drawing_mode="freedraw",
-            key="canvas_admin",
+            update_streamlit=True,
+            key="canvas_admin_v2",
         )
 
         if st.button("Kirim Perintah Lembur", type="primary"):
-            # Pengecekan aman untuk image_data kanvas
-            has_drawing = False
-            try:
-                if canvas_admin is not None and canvas_admin.image_data is not None:
-                    has_drawing = canvas_admin.image_data.any()
-            except Exception:
-                has_drawing = False
+            # Cek validasi tiap isian secara mendalam
+            err_msg = []
+            if not nama_karyawan.strip():
+                err_msg.append("Nama Karyawan belum diisi")
+            if not instruksi.strip():
+                err_msg.append("Instruksi Pekerjaan belum diisi")
 
-            if nama_karyawan and instruksi and has_drawing:
+            # Cek data gambar dari kanvas tanpa menimbulkan RuntimeError
+            ttd_ada = False
+            if canvas_admin is not None and canvas_admin.image_data is not None:
+                try:
+                    # Memeriksa apakah ada piksel yang tergambar (alpha channel > 0)
+                    ttd_ada = (canvas_admin.image_data[:, :, 3] > 0).any()
+                except Exception:
+                    ttd_ada = False
+
+            if not ttd_ada:
+                err_msg.append("Tanda tangan belum terdeteksi (silakan goreskan tanda tangan kembali)")
+
+            if err_msg:
+                st.error("⚠️ Gagal mengirim! " + " | ".join(err_msg))
+            else:
                 id_spl = f"SPL-{len(st.session_state.db_spl) + 1:03d}"
                 data_baru = {
                     "id": id_spl,
@@ -121,10 +136,8 @@ else:
                 }
                 st.session_state.db_spl.append(data_baru)
                 save_data(st.session_state.db_spl)
-                st.success(f"Berhasil menerbitkan {id_spl} untuk {nama_karyawan}! Data tersimpan.")
+                st.success(f"✅ Berhasil menerbitkan {id_spl} untuk {nama_karyawan}!")
                 st.rerun()
-            else:
-                st.warning("Mohon lengkapi nama, instruksi, dan goreskan tanda tangan pada kotak di atas.")
 
         # --- MENU AJUKAN HAPUS DATA (ADMIN) ---
         st.divider()
@@ -142,7 +155,7 @@ else:
                         item["status"] = "Menunggu Persetujuan Hapus Karyawan"
                         break
                 save_data(st.session_state.db_spl)
-                st.warning(f"Permohonan hapus untuk {id_to_req_del} telah dikirim ke Karyawan untuk disetujui.")
+                st.warning(f"Permohonan hapus untuk {id_to_req_del} telah dikirim ke Karyawan.")
                 st.rerun()
         else:
             st.caption("Tidak ada data SPL yang bisa diajukan hapus.")
@@ -170,34 +183,35 @@ else:
             
             st.write("**Tanda Tangan Karyawan (Penerima Perintah):**")
             canvas_user = st_canvas(
-                stroke_width=2,
+                stroke_width=3,
                 stroke_color="#000000",
                 background_color="#EEEEEE",
-                height=120,
+                height=130,
                 width=350,
                 drawing_mode="freedraw",
-                key="canvas_user",
+                update_streamlit=True,
+                key="canvas_user_v2",
             )
             
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
-                has_drawing_user = False
-                try:
-                    if canvas_user is not None and canvas_user.image_data is not None:
-                        has_drawing_user = canvas_user.image_data.any()
-                except Exception:
-                    has_drawing_user = False
+                ttd_user_ada = False
+                if canvas_user is not None and canvas_user.image_data is not None:
+                    try:
+                        ttd_user_ada = (canvas_user.image_data[:, :, 3] > 0).any()
+                    except Exception:
+                        ttd_user_ada = False
 
-                if has_drawing_user:
+                if ttd_user_ada:
                     for item in st.session_state.db_spl:
                         if item["id"] == selected_id:
                             item["ttd_user"] = True
                             item["status"] = "Selesai (ACC 2 Belah Pihak)"
                             break
                     save_data(st.session_state.db_spl)
-                    st.success(f"SPL {selected_id} berhasil disetujui! Bukti tersimpan permanen.")
+                    st.success(f"✅ SPL {selected_id} berhasil disetujui!")
                     st.rerun()
                 else:
-                    st.warning("Mohon bubuhkan tanda tangan sebelum mengonfirmasi.")
+                    st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan pada kotak di atas terlebih dahulu.")
         else:
             st.info("Tidak ada perintah lembur baru yang menunggu tanda tangan Anda.")
 
