@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 import base64
+import numpy as np
 from io import BytesIO
 from PIL import Image
 from fpdf import FPDF
@@ -12,6 +13,22 @@ from fpdf import FPDF
 st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wide")
 
 DB_FILE = "data_spl.json"
+
+# --- FUNGSI DETEKSI APAKAH CANVAS SUDAH DITANDATANGANI ---
+def is_canvas_signed(image_data):
+    if image_data is None:
+        return False
+    try:
+        # Jika ada elemen warna/piksel selain background transparan/putih murni
+        # Cek channel alpha atau variasi nilai piksel
+        if isinstance(image_data, np.ndarray):
+            # Cek jika ada warna hitam / goresan
+            # Kanal RGB (0, 1, 2) memiliki nilai kurang dari 200 (area goresan gelap)
+            has_strokes = np.any(image_data[:, :, :3] < 100)
+            return bool(has_strokes)
+    except Exception:
+        pass
+    return False
 
 # --- FUNGSI CONVERT CANVAS PNG ARRAY KE BASE64 STRING ---
 def canvas_to_base64(image_data):
@@ -84,7 +101,7 @@ def generate_pdf(spl_data):
     
     y_before_ttd = pdf.get_y()
     
-    # 1. Menampilkan Gambar TTD Atasan di PDF
+    # 1. Gambar TTD Atasan
     if spl_data.get("ttd_admin_img"):
         file_admin = f"temp_admin_{spl_data['id']}.png"
         if base64_to_temp_file(spl_data["ttd_admin_img"], file_admin):
@@ -92,7 +109,7 @@ def generate_pdf(spl_data):
             if os.path.exists(file_admin):
                 os.remove(file_admin)
 
-    # 2. Menampilkan Gambar TTD Karyawan di PDF
+    # 2. Gambar TTD Karyawan
     if spl_data.get("ttd_user_img"):
         file_user = f"temp_user_{spl_data['id']}.png"
         if base64_to_temp_file(spl_data["ttd_user_img"], file_user):
@@ -100,9 +117,9 @@ def generate_pdf(spl_data):
             if os.path.exists(file_user):
                 os.remove(file_user)
 
-    pdf.ln(22) # Memberikan ruang tinggi gambar TTD
+    pdf.ln(22)
     
-    # Nama TTD Atasan & Karyawan
+    # Nama TTD
     pdf.set_font("Arial", "", 10)
     nama_atasan_ttd = spl_data.get('nama_atasan', 'Atasan / Supervisor')
     pdf.cell(90, 6, f"( {nama_atasan_ttd} )", align="C")
@@ -110,7 +127,7 @@ def generate_pdf(spl_data):
     
     return bytes(pdf.output())
 
-# --- FUNGSI BACA, FILTER 3 BULAN, & SIMPAN DATA ---
+# --- FUNGSI DATABASE ---
 def load_data():
     if os.path.exists(DB_FILE):
         try:
@@ -135,7 +152,6 @@ def save_data(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# --- FUNGSI HITUNG DURASI JAM LEMBUR ---
 def hitung_durasi_jam(string_jam):
     try:
         jam_mulai_str, jam_selesai_str = string_jam.split(" - ")
@@ -150,7 +166,6 @@ def hitung_durasi_jam(string_jam):
     except Exception:
         return 0.0
 
-# SELALU SINKRONKAN DATABASE TERBARU DARI FILE JSON
 st.session_state.db_spl = load_data()
 
 if "logged_in" not in st.session_state:
@@ -161,7 +176,6 @@ if "logged_in" not in st.session_state:
 if "last_sent_spl" not in st.session_state:
     st.session_state.last_sent_spl = None
 
-# COUNTER RESET CANVAS UNTUK CLEAR TTD
 if "reset_canvas_admin" not in st.session_state:
     st.session_state.reset_canvas_admin = 0
 
@@ -281,16 +295,13 @@ else:
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
 
+            # CEK VALIDASI TANDA TANGAN LEBIH AKURAT
             ttd_ada = False
             ttd_admin_base64 = None
-            try:
-                if canvas_admin is not None and canvas_admin.json_data is not None:
-                    objects = canvas_admin.json_data.get("objects", [])
-                    if len(objects) > 0:
-                        ttd_ada = True
-                        ttd_admin_base64 = canvas_to_base64(canvas_admin.image_data)
-            except Exception:
-                ttd_ada = False
+            if canvas_admin is not None and canvas_admin.image_data is not None:
+                if is_canvas_signed(canvas_admin.image_data):
+                    ttd_ada = True
+                    ttd_admin_base64 = canvas_to_base64(canvas_admin.image_data)
 
             if not ttd_ada:
                 err_msg.append("Tanda tangan belum digoreskan")
@@ -390,14 +401,10 @@ else:
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
                 ttd_user_ada = False
                 ttd_user_base64 = None
-                try:
-                    if canvas_user is not None and canvas_user.json_data is not None:
-                        objects = canvas_user.json_data.get("objects", [])
-                        if len(objects) > 0:
-                            ttd_user_ada = True
-                            ttd_user_base64 = canvas_to_base64(canvas_user.image_data)
-                except Exception:
-                    ttd_user_ada = False
+                if canvas_user is not None and canvas_user.image_data is not None:
+                    if is_canvas_signed(canvas_user.image_data):
+                        ttd_user_ada = True
+                        ttd_user_base64 = canvas_to_base64(canvas_user.image_data)
 
                 if ttd_user_ada:
                     for item in st.session_state.db_spl:
