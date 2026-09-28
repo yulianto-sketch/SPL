@@ -19,11 +19,11 @@ def get_canvas_base64(canvas_obj):
     if canvas_obj is None:
         return None
     try:
-        # Mengakses image_data secara aman
+        # Mengakses image_data tanpa memicu exception dari library
         img_data = getattr(canvas_obj, "image_data", None)
         if img_data is not None and isinstance(img_data, np.ndarray):
             alpha = img_data[:, :, 3]
-            if np.sum(alpha > 0) > 10:  # Minimal 10 piksel tergores
+            if np.sum(alpha > 0) > 10:  # Ada goresan minimal 10 piksel
                 img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
                 buffered = BytesIO()
                 img.save(buffered, format="PNG")
@@ -245,7 +245,6 @@ else:
             width=350,
             drawing_mode="freedraw",
             update_streamlit=True,
-            realtime_update=True,  # DIATUR TRUE AGAR TIDAK ERROR
             key=canvas_admin_key,
         )
 
@@ -353,7 +352,6 @@ else:
                 width=350,
                 drawing_mode="freedraw",
                 update_streamlit=True,
-                realtime_update=True,  # DIATUR TRUE AGAR TIDAK ERROR
                 key=canvas_user_key,
             )
 
