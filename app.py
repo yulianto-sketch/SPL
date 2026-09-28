@@ -85,7 +85,7 @@ else:
             instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
-        st.caption("💡 *Silakan tanda tangan di kotak abu-abu bawah ini:*")
+        st.caption("💡 *Goreskan tanda tangan pada kotak abu-abu di bawah ini:*")
         
         canvas_admin = st_canvas(
             stroke_width=3,
@@ -95,28 +95,29 @@ else:
             width=350,
             drawing_mode="freedraw",
             update_streamlit=True,
-            key="canvas_admin_v2",
+            key="canvas_admin_safe",
         )
 
         if st.button("Kirim Perintah Lembur", type="primary"):
-            # Cek validasi tiap isian secara mendalam
+            # Cek isian teks
             err_msg = []
             if not nama_karyawan.strip():
                 err_msg.append("Nama Karyawan belum diisi")
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
 
-            # Cek data gambar dari kanvas tanpa menimbulkan RuntimeError
+            # Cek tanda tangan menggunakan json_data secara aman (tanpa RuntimeError)
             ttd_ada = False
-            if canvas_admin is not None and canvas_admin.image_data is not None:
-                try:
-                    # Memeriksa apakah ada piksel yang tergambar (alpha channel > 0)
-                    ttd_ada = (canvas_admin.image_data[:, :, 3] > 0).any()
-                except Exception:
-                    ttd_ada = False
+            try:
+                if canvas_admin is not None and canvas_admin.json_data is not None:
+                    objects = canvas_admin.json_data.get("objects", [])
+                    if len(objects) > 0:
+                        ttd_ada = True
+            except Exception:
+                ttd_ada = False
 
             if not ttd_ada:
-                err_msg.append("Tanda tangan belum terdeteksi (silakan goreskan tanda tangan kembali)")
+                err_msg.append("Tanda tangan belum digoreskan")
 
             if err_msg:
                 st.error("⚠️ Gagal mengirim! " + " | ".join(err_msg))
@@ -190,16 +191,18 @@ else:
                 width=350,
                 drawing_mode="freedraw",
                 update_streamlit=True,
-                key="canvas_user_v2",
+                key="canvas_user_safe",
             )
             
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
                 ttd_user_ada = False
-                if canvas_user is not None and canvas_user.image_data is not None:
-                    try:
-                        ttd_user_ada = (canvas_user.image_data[:, :, 3] > 0).any()
-                    except Exception:
-                        ttd_user_ada = False
+                try:
+                    if canvas_user is not None and canvas_user.json_data is not None:
+                        objects = canvas_user.json_data.get("objects", [])
+                        if len(objects) > 0:
+                            ttd_user_ada = True
+                except Exception:
+                    ttd_user_ada = False
 
                 if ttd_user_ada:
                     for item in st.session_state.db_spl:
@@ -211,7 +214,7 @@ else:
                     st.success(f"✅ SPL {selected_id} berhasil disetujui!")
                     st.rerun()
                 else:
-                    st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan pada kotak di atas terlebih dahulu.")
+                    st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan pada kotak terlebih dahulu.")
         else:
             st.info("Tidak ada perintah lembur baru yang menunggu tanda tangan Anda.")
 
