@@ -75,7 +75,6 @@ else:
     if st.session_state.role == "Admin":
         st.subheader("👨‍💼 1. Buat Perintah Lembur Baru")
         
-        # Form Input Biasa (Tanpa st.form agar canvas lancar)
         col1, col2 = st.columns(2)
         with col1:
             nama_karyawan = st.text_input("Nama Karyawan yang Ditugaskan")
@@ -98,7 +97,14 @@ else:
         )
 
         if st.button("Kirim Perintah Lembur", type="primary"):
-            has_drawing = canvas_admin.image_data is not None and canvas_admin.image_data.any()
+            # Pengecekan aman untuk image_data kanvas
+            has_drawing = False
+            try:
+                if canvas_admin is not None and canvas_admin.image_data is not None:
+                    has_drawing = canvas_admin.image_data.any()
+            except Exception:
+                has_drawing = False
+
             if nama_karyawan and instruksi and has_drawing:
                 id_spl = f"SPL-{len(st.session_state.db_spl) + 1:03d}"
                 data_baru = {
@@ -118,7 +124,7 @@ else:
                 st.success(f"Berhasil menerbitkan {id_spl} untuk {nama_karyawan}! Data tersimpan.")
                 st.rerun()
             else:
-                st.warning("Mohon lengkapi nama, instruksi, dan tanda tangan.")
+                st.warning("Mohon lengkapi nama, instruksi, dan goreskan tanda tangan pada kotak di atas.")
 
         # --- MENU AJUKAN HAPUS DATA (ADMIN) ---
         st.divider()
@@ -174,7 +180,13 @@ else:
             )
             
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
-                has_drawing_user = canvas_user.image_data is not None and canvas_user.image_data.any()
+                has_drawing_user = False
+                try:
+                    if canvas_user is not None and canvas_user.image_data is not None:
+                        has_drawing_user = canvas_user.image_data.any()
+                except Exception:
+                    has_drawing_user = False
+
                 if has_drawing_user:
                     for item in st.session_state.db_spl:
                         if item["id"] == selected_id:
