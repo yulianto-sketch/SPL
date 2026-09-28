@@ -47,17 +47,34 @@ def generate_pdf(spl_data):
     pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 6, f"{spl_data['instruksi']}", border=1)
     
-    pdf.ln(15)
+    pdf.ln(12)
     
+    # --- KETERANGAN PENGESAHAN OTOMATIS (DIGITAL APPROVAL STATEMENT) ---
+    pdf.set_font("Arial", "I", 9)
+    status_text = spl_data.get('status', 'Disetujui secara elektronik')
+    
+    pdf.multi_cell(
+        0, 5, 
+        f"Catatan Pengesahan:\n"
+        f"Dokumen Surat Perintah Lembur ini telah diterbitkan oleh Atasan ({spl_data.get('nama_atasan', 'Atasan')}) "
+        f"dan dikonfirmasi oleh Karyawan ({spl_data['karyawan']}) secara elektronik melalui Sistem SPL Online. "
+        f"Dokumen ini sah dan berlaku resmi tanpa memerlukan tanda tangan basah.\n"
+        f"Status Dokumen: {status_text}",
+        border=1,
+        align="L"
+    )
+    
+    pdf.ln(10)
+    
+    # Informasi Pihak Terkait
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(90, 8, "Pemberi Perintah (Atasan)", align="C")
-    pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(90, 6, "Diterbitkan Oleh (Atasan):", align="C")
+    pdf.cell(90, 6, "Disetujui Oleh (Karyawan):", align="C", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.ln(15)
     pdf.set_font("Arial", "", 10)
     nama_atasan_ttd = spl_data.get('nama_atasan', 'Atasan / Supervisor')
-    pdf.cell(90, 6, f"( {nama_atasan_ttd} )", align="C")
-    pdf.cell(90, 6, f"( {spl_data['karyawan']} )", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(90, 6, f"[ {nama_atasan_ttd} ]", align="C")
+    pdf.cell(90, 6, f"[ {spl_data['karyawan']} ]", align="C", new_x="LMARGIN", new_y="NEXT")
     
     return bytes(pdf.output())
 
@@ -256,7 +273,7 @@ else:
                 for item in st.session_state.db_spl:
                     if item["id"] == selected_id:
                         item["confirmed_user"] = True
-                        item["status"] = "Selesai (Disetujui 2 Belah Pihak)"
+                        item["status"] = "Selesai (Disetujui secara Elektronik)"
                         break
                 save_data(st.session_state.db_spl)
                 st.toast(f"✅ SPL {selected_id} disetujui!", icon="🎉")
