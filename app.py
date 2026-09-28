@@ -17,32 +17,32 @@ def generate_pdf(spl_data):
     pdf.set_font("Arial", "B", 16)
     
     # Header Document
-    pdf.cell(0, 10, "SURAT PERINTAH LEMBUR (SPL)", ln=True, align="C")
+    pdf.cell(0, 10, "SURAT PERINTAH LEMBUR (SPL)", new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 5, f"Nomor Dokumen: {spl_data['id']}", ln=True, align="C")
+    pdf.cell(0, 5, f"Nomor Dokumen: {spl_data['id']}", new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.ln(10)
     
     # Detail SPL
     pdf.set_font("Arial", "", 11)
     pdf.cell(50, 8, "Nama Karyawan", border=0)
     pdf.cell(5, 8, ":", border=0)
-    pdf.cell(0, 8, f"{spl_data['karyawan']}", border=0, ln=True)
+    pdf.cell(0, 8, f"{spl_data['karyawan']}", border=0, new_x="LMARGIN", new_y="NEXT")
     
     pdf.cell(50, 8, "Departemen", border=0)
     pdf.cell(5, 8, ":", border=0)
-    pdf.cell(0, 8, f"{spl_data['departemen']}", border=0, ln=True)
+    pdf.cell(0, 8, f"{spl_data['departemen']}", border=0, new_x="LMARGIN", new_y="NEXT")
     
     pdf.cell(50, 8, "Tanggal Lembur", border=0)
     pdf.cell(5, 8, ":", border=0)
-    pdf.cell(0, 8, f"{spl_data['tanggal']}", border=0, ln=True)
+    pdf.cell(0, 8, f"{spl_data['tanggal']}", border=0, new_x="LMARGIN", new_y="NEXT")
     
     pdf.cell(50, 8, "Jam Lembur", border=0)
     pdf.cell(5, 8, ":", border=0)
-    pdf.cell(0, 8, f"{spl_data['jam']}", border=0, ln=True)
+    pdf.cell(0, 8, f"{spl_data['jam']}", border=0, new_x="LMARGIN", new_y="NEXT")
     
     pdf.ln(5)
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 8, "Instruksi Pekerjaan Lembur:", ln=True)
+    pdf.cell(0, 8, "Instruksi Pekerjaan Lembur:", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 6, f"{spl_data['instruksi']}", border=1)
     
@@ -51,21 +51,21 @@ def generate_pdf(spl_data):
     # Status Tanda Tangan
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Pemberi Perintah (Atasan)", align="C")
-    pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", ln=True)
+    pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.ln(15) # Ruang untuk TTD
+    pdf.ln(15) # Ruang TTD
     
     pdf.set_font("Arial", "", 10)
     ttd_admin_status = "[ VALID - TTD DIGITAL ]" if spl_data.get("ttd_admin") else "[ BELUM TTD ]"
     ttd_user_status = "[ VALID - TTD DIGITAL ]" if spl_data.get("ttd_user") else "[ BELUM TTD ]"
     
     pdf.cell(90, 6, ttd_admin_status, align="C")
-    pdf.cell(90, 6, ttd_user_status, align="C", ln=True)
+    pdf.cell(90, 6, ttd_user_status, align="C", new_x="LMARGIN", new_y="NEXT")
     
     pdf.cell(90, 6, "( Atasan / Supervisor )", align="C")
-    pdf.cell(90, 6, f"( {spl_data['karyawan']} )", align="C", ln=True)
+    pdf.cell(90, 6, f"( {spl_data['karyawan']} )", align="C", new_x="LMARGIN", new_y="NEXT")
     
-    return pdf.output(dest="S").encode("latin-1")
+    return bytes(pdf.output())
 
 # --- FUNGSI BACA, FILTER 3 BULAN, & SIMPAN DATA ---
 def load_data():
@@ -74,7 +74,6 @@ def load_data():
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
                 
-            # Filter otomatis: hapus data yang lebih tua dari 90 hari (3 bulan)
             today = datetime.date.today()
             filtered_data = []
             for item in data:
@@ -92,6 +91,23 @@ def load_data():
 def save_data(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
+
+# --- FUNGSI HITUNG DURASI JAM LEMBUR ---
+def hitung_durasi_jam(string_jam):
+    """Menghitung selisih jam dari format 'HH:MM - HH:MM'"""
+    try:
+        jam_mulai_str, jam_selesai_str = string_jam.split(" - ")
+        t_mulai = datetime.datetime.strptime(jam_mulai_str.strip(), "%H:%M")
+        t_selesai = datetime.datetime.strptime(jam_selesai_str.strip(), "%H:%M")
+        
+        # Jika lewat tengah malam
+        if t_selesai < t_mulai:
+            t_selesai += datetime.timedelta(days=1)
+            
+        selisih = t_selesai - t_mulai
+        return selisih.total_seconds() / 3600.0
+    except Exception:
+        return 0.0
 
 # Inisialisasi Session State
 if "db_spl" not in st.session_state:
@@ -308,19 +324,57 @@ else:
             st.caption("Tidak ada permohonan hapus dari Atasan.")
 
     # ==========================================
-    # TABEL ARSIP & DOWNLOAD PDF (BISA AKSES DUA ROLE)
+    # FILTER PERIODE & TOTAL JAM LEMBUR
     # ==========================================
     st.divider()
-    st.subheader("📂 Arsip Bukti & Download PDF SPL (3 Bulan Terakhir)")
+    st.subheader("📊 Pencarian & Total Jam Lembur Berdasarkan Periode")
     
-    if st.session_state.db_spl:
-        for spl in reversed(st.session_state.db_spl):
-            with st.expander(f"📄 {spl['id']} - {spl['karyawan']} ({spl['tanggal']}) - Status: {spl['status']}"):
+    col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
+    with col_f1:
+        start_date = st.date_input("Tanggal Mulai", datetime.date.today() - datetime.timedelta(days=30))
+    with col_f2:
+        end_date = st.date_input("Tanggal Selesai", datetime.date.today())
+    with col_f3:
+        filter_nama = st.text_input("Filter Nama Karyawan (Opsional)", "")
+
+    # Proses Pengolahan Data
+    data_filtered = []
+    total_jam_periode = 0.0
+
+    for item in st.session_state.db_spl:
+        try:
+            tgl_item = datetime.datetime.strptime(item["tanggal"], "%Y-%m-%d").date()
+            if start_date <= tgl_item <= end_date:
+                if filter_nama.strip() == "" or filter_nama.lower() in item["karyawan"].lower():
+                    durasi = hitung_durasi_jam(item["jam"])
+                    item_copy = item.copy()
+                    item_copy["durasi_jam"] = durasi
+                    data_filtered.append(item_copy)
+                    total_jam_periode += durasi
+        except Exception:
+            pass
+
+    # Ringkasan Kartu
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.metric("Total Dokumen SPL", f"{len(data_filtered)} SPL")
+    with col_m2:
+        st.metric("Total Jam Lembur Periode Ini", f"{total_jam_periode:.1f} Jam")
+
+    # ==========================================
+    # TABEL ARSIP & DOWNLOAD PDF
+    # ==========================================
+    st.subheader("📂 Detail Arsip & Download PDF SPL")
+    
+    if data_filtered:
+        for spl in reversed(data_filtered):
+            durasi_text = f"{spl.get('durasi_jam', 0):.1f} Jam"
+            with st.expander(f"📄 {spl['id']} - {spl['karyawan']} ({spl['tanggal']}) | {durasi_text} - Status: {spl['status']}"):
                 col_detail, col_dl = st.columns([3, 1])
                 
                 with col_detail:
                     st.write(f"**Departemen:** {spl['departemen']}")
-                    st.write(f"**Jam Lembur:** {spl['jam']}")
+                    st.write(f"**Jam Lembur:** {spl['jam']} ({durasi_text})")
                     st.write(f"**Instruksi Pekerjaan:** {spl['instruksi']}")
                     st.write(f"**TTD Atasan:** {'✅ Sudah' if spl.get('ttd_admin') else '❌ Belum'}")
                     st.write(f"**TTD Karyawan:** {'✅ Sudah' if spl.get('ttd_user') else '❌ Belum'}")
@@ -335,4 +389,4 @@ else:
                         key=f"dl_pdf_{spl['id']}"
                     )
     else:
-        st.info("Belum ada arsip Surat Perintah Lembur.")
+        st.info("Tidak ada data SPL yang sesuai dengan periode atau nama yang dipilih.")
