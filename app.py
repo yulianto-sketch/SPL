@@ -14,23 +14,25 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI DETEKSI TANDA TANGAN BERBASIS PIKSEL ---
+# --- FUNGSI DETEKSI TANDA TANGAN BERBASIS PIKSEL (PERBAIKAN ERROR) ---
 def process_canvas_data(canvas_obj):
     """
-    Mengambil array image_data dari canvas dan memverifikasi pikselnya.
+    Mengambil array image_data dari canvas dengan aman tanpa memicu RuntimeError.
     """
-    if canvas_obj is None or canvas_obj.image_data is None:
+    if canvas_obj is None:
         return None, False
     
     try:
+        # Mengakses image_data dibungkus try-except untuk menangkap RuntimeError
         img_data = canvas_obj.image_data
-        if isinstance(img_data, np.ndarray):
+        if img_data is not None and isinstance(img_data, np.ndarray):
             # Cek channel Alpha (transparansi)
             alpha_channel = img_data[:, :, 3]
             # Jika ada lebih dari 10 piksel terisi
             if np.count_nonzero(alpha_channel) > 10:
                 return img_data, True
-    except Exception:
+    except (RuntimeError, AttributeError, Exception):
+        # Tangkap RuntimeError dari streamlit_drawable_canvas jika canvas masih kosong
         pass
 
     return None, False
@@ -279,7 +281,7 @@ else:
         instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
         st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
-        st.caption("💡 *Goreskan tanda tangan pada kotak, lalu klik **Konfirmasi Tanda Tangan** di bawah.*")
+        st.caption("💡 *Goreskan tanda tangan pada kotak di bawah.*")
         
         canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
         canvas_admin = st_canvas(
@@ -299,9 +301,9 @@ else:
                 admin_img_data, ttd_ada = process_canvas_data(canvas_admin)
                 if ttd_ada:
                     st.session_state.saved_ttd_admin_base64 = canvas_to_base64(admin_img_data)
-                    st.success(" Tanda tangan berhasil tersimpan!")
+                    st.success("Tanda tangan berhasil tersimpan!")
                 else:
-                    st.error(" Tanda tangan belum terdeteksi pada kotak!")
+                    st.error("Tanda tangan belum terdeteksi pada kotak!")
                     
         with col_btn_a2:
             if st.button("🗑️ Hapus Tanda Tangan", key="clear_admin_ttd"):
@@ -309,11 +311,10 @@ else:
                 st.session_state.saved_ttd_admin_base64 = None
                 st.rerun()
 
-        # Cek jika ttd sudah langsung terdeteksi dari canvas jika belum ditekan tombol konfirmasi
-        if not st.session_state.saved_ttd_admin_base64:
-            admin_img_data, ttd_ada = process_canvas_data(canvas_admin)
-            if ttd_ada:
-                st.session_state.saved_ttd_admin_base64 = canvas_to_base64(admin_img_data)
+        # Deteksi otomatis langsung dari canvas jika pengguna belum menekan tombol konfirmasi
+        admin_img_data, ttd_ada = process_canvas_data(canvas_admin)
+        if ttd_ada:
+            st.session_state.saved_ttd_admin_base64 = canvas_to_base64(admin_img_data)
 
         st.divider()
 
@@ -401,7 +402,7 @@ else:
             """)
             
             st.write("**Tanda Tangan Karyawan (Penerima Perintah):**")
-            st.caption("💡 *Goreskan tanda tangan pada kotak, lalu klik **Konfirmasi Tanda Tangan**.*")
+            st.caption("💡 *Goreskan tanda tangan pada kotak di bawah.*")
 
             canvas_user_key = f"canvas_user_{st.session_state.reset_canvas_user}"
             canvas_user = st_canvas(
@@ -431,10 +432,9 @@ else:
                     st.session_state.saved_ttd_user_base64 = None
                     st.rerun()
 
-            if not st.session_state.saved_ttd_user_base64:
-                user_img_data, ttd_ada = process_canvas_data(canvas_user)
-                if ttd_ada:
-                    st.session_state.saved_ttd_user_base64 = canvas_to_base64(user_img_data)
+            user_img_data, ttd_ada = process_canvas_data(canvas_user)
+            if ttd_ada:
+                st.session_state.saved_ttd_user_base64 = canvas_to_base64(user_img_data)
 
             st.divider()
 
