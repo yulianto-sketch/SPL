@@ -4,17 +4,87 @@ from streamlit_drawable_canvas import st_canvas
 import datetime
 import json
 import os
+from fpdf import FPDF
 
 st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wide")
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI SIMPAN & BACA DATA ---
+# --- FUNGSI GENERATE PDF SPL ---
+def generate_pdf(spl_data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    
+    # Header Document
+    pdf.cell(0, 10, "SURAT PERINTAH LEMBUR (SPL)", ln=True, align="C")
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 5, f"Nomor Dokumen: {spl_data['id']}", ln=True, align="C")
+    pdf.ln(10)
+    
+    # Detail SPL
+    pdf.set_font("Arial", "", 11)
+    pdf.cell(50, 8, "Nama Karyawan", border=0)
+    pdf.cell(5, 8, ":", border=0)
+    pdf.cell(0, 8, f"{spl_data['karyawan']}", border=0, ln=True)
+    
+    pdf.cell(50, 8, "Departemen", border=0)
+    pdf.cell(5, 8, ":", border=0)
+    pdf.cell(0, 8, f"{spl_data['departemen']}", border=0, ln=True)
+    
+    pdf.cell(50, 8, "Tanggal Lembur", border=0)
+    pdf.cell(5, 8, ":", border=0)
+    pdf.cell(0, 8, f"{spl_data['tanggal']}", border=0, ln=True)
+    
+    pdf.cell(50, 8, "Jam Lembur", border=0)
+    pdf.cell(5, 8, ":", border=0)
+    pdf.cell(0, 8, f"{spl_data['jam']}", border=0, ln=True)
+    
+    pdf.ln(5)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 8, "Instruksi Pekerjaan Lembur:", ln=True)
+    pdf.set_font("Arial", "", 11)
+    pdf.multi_cell(0, 6, f"{spl_data['instruksi']}", border=1)
+    
+    pdf.ln(15)
+    
+    # Status Tanda Tangan
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(90, 8, "Pemberi Perintah (Atasan)", align="C")
+    pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", ln=True)
+    
+    pdf.ln(15) # Ruang untuk TTD
+    
+    pdf.set_font("Arial", "", 10)
+    ttd_admin_status = "[ VALID - TTD DIGITAL ]" if spl_data.get("ttd_admin") else "[ BELUM TTD ]"
+    ttd_user_status = "[ VALID - TTD DIGITAL ]" if spl_data.get("ttd_user") else "[ BELUM TTD ]"
+    
+    pdf.cell(90, 6, ttd_admin_status, align="C")
+    pdf.cell(90, 6, ttd_user_status, align="C", ln=True)
+    
+    pdf.cell(90, 6, "( Atasan / Supervisor )", align="C")
+    pdf.cell(90, 6, f"( {spl_data['karyawan']} )", align="C", ln=True)
+    
+    return pdf.output(dest="S").encode("latin-1")
+
+# --- FUNGSI BACA, FILTER 3 BULAN, & SIMPAN DATA ---
 def load_data():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                
+            # Filter otomatis: hapus data yang lebih tua dari 90 hari (3 bulan)
+            today = datetime.date.today()
+            filtered_data = []
+            for item in data:
+                try:
+                    tgl_item = datetime.datetime.strptime(item["tanggal"], "%Y-%m-%d").date()
+                    if (today - tgl_item).days <= 90:
+                        filtered_data.append(item)
+                except Exception:
+                    filtered_data.append(item)
+            return filtered_data
         except Exception:
             return []
     return []
@@ -35,7 +105,7 @@ if "logged_in" not in st.session_state:
 # --- HALAMAN LOGIN ---
 if not st.session_state.logged_in:
     st.title("🔐 Login Sistem SPL Lembur")
-    st.caption("Masuk untuk membuat, menandatangani, atau menyetujui hapus SPL")
+    st.caption("Masuk untuk membuat, menandatangani, atau mengunduh dokumen SPL")
     
     with st.form("login_form"):
         username = st.text_input("Username")
@@ -66,6 +136,7 @@ else:
         st.rerun()
 
     st.title("📝 Surat Perintah Lembur (SPL)")
+    st.caption("🗓️ *Histori tersimpan otomatis selama 3 bulan terakhir*")
     st.divider()
 
     # ==========================================
@@ -99,14 +170,12 @@ else:
         )
 
         if st.button("Kirim Perintah Lembur", type="primary"):
-            # Cek isian teks
             err_msg = []
             if not nama_karyawan.strip():
                 err_msg.append("Nama Karyawan belum diisi")
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
 
-            # Cek tanda tangan menggunakan json_data secara aman (tanpa RuntimeError)
             ttd_ada = False
             try:
                 if canvas_admin is not None and canvas_admin.json_data is not None:
@@ -239,13 +308,31 @@ else:
             st.caption("Tidak ada permohonan hapus dari Atasan.")
 
     # ==========================================
-    # TABEL ARSIP BUKTI
+    # TABEL ARSIP & DOWNLOAD PDF (BISA AKSES DUA ROLE)
     # ==========================================
     st.divider()
-    st.subheader("📂 Arsip Bukti Pengajuan SPL")
+    st.subheader("📂 Arsip Bukti & Download PDF SPL (3 Bulan Terakhir)")
     
     if st.session_state.db_spl:
-        df = pd.DataFrame(st.session_state.db_spl)
-        st.dataframe(df[["id", "tanggal", "karyawan", "departemen", "jam", "instruksi", "status"]], use_container_width=True)
+        for spl in reversed(st.session_state.db_spl):
+            with st.expander(f"📄 {spl['id']} - {spl['karyawan']} ({spl['tanggal']}) - Status: {spl['status']}"):
+                col_detail, col_dl = st.columns([3, 1])
+                
+                with col_detail:
+                    st.write(f"**Departemen:** {spl['departemen']}")
+                    st.write(f"**Jam Lembur:** {spl['jam']}")
+                    st.write(f"**Instruksi Pekerjaan:** {spl['instruksi']}")
+                    st.write(f"**TTD Atasan:** {'✅ Sudah' if spl.get('ttd_admin') else '❌ Belum'}")
+                    st.write(f"**TTD Karyawan:** {'✅ Sudah' if spl.get('ttd_user') else '❌ Belum'}")
+                
+                with col_dl:
+                    pdf_bytes = generate_pdf(spl)
+                    st.download_button(
+                        label="📄 Download PDF",
+                        data=pdf_bytes,
+                        file_name=f"Surat_Perintah_Lembur_{spl['id']}.pdf",
+                        mime="application/pdf",
+                        key=f"dl_pdf_{spl['id']}"
+                    )
     else:
-        st.caption("Belum ada arsip SPL.")
+        st.info("Belum ada arsip Surat Perintah Lembur.")
