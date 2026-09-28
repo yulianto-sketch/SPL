@@ -1,57 +1,13 @@
 import streamlit as st
 import pandas as pd
-from streamlit_drawable_canvas import st_canvas
 import datetime
 import json
 import os
-import base64
-import numpy as np
-from io import BytesIO
-from PIL import Image
 from fpdf import FPDF
 
 st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wide")
 
 DB_FILE = "data_spl.json"
-
-# --- FUNGSI DETEKSI & KONVERSI TANDA TANGAN AMAN ---
-def get_canvas_base64(canvas_obj):
-    if canvas_obj is None:
-        return None
-    try:
-        # Mengakses image_data
-        img_data = getattr(canvas_obj, "image_data", None)
-        if img_data is not None and isinstance(img_data, np.ndarray) and img_data.size > 0:
-            # Pengecekan 1: Menggunakan Alpha channel jika tersedia
-            if img_data.shape[2] == 4:
-                alpha = img_data[:, :, 3]
-                # Jika ada piksel tidak transparan sama sekali
-                if np.any(alpha > 0):
-                    img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
-                    buffered = BytesIO()
-                    img.save(buffered, format="PNG")
-                    return base64.b64encode(buffered.getvalue()).decode('utf-8')
-            
-            # Pengecekan 2: Fallback jika format RGB (memeriksa piksel bukan putih polos)
-            elif img_data.shape[2] == 3:
-                if np.any(img_data < 255):
-                    img = Image.fromarray(img_data.astype('uint8'), 'RGB')
-                    buffered = BytesIO()
-                    img.save(buffered, format="PNG")
-                    return base64.b64encode(buffered.getvalue()).decode('utf-8')
-    except Exception:
-        pass
-    return None
-
-# --- HELPER BASE64 TO FILE ---
-def base64_to_temp_file(base64_str, filename):
-    try:
-        img_data = base64.b64decode(base64_str)
-        img = Image.open(BytesIO(img_data))
-        img.save(filename, "PNG")
-        return filename
-    except Exception:
-        return None
 
 # --- GENERATE PDF ---
 def generate_pdf(spl_data):
@@ -91,29 +47,13 @@ def generate_pdf(spl_data):
     pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 6, f"{spl_data['instruksi']}", border=1)
     
-    pdf.ln(10)
+    pdf.ln(15)
     
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Pemberi Perintah (Atasan)", align="C")
     pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", new_x="LMARGIN", new_y="NEXT")
     
-    y_before_ttd = pdf.get_y()
-    
-    if spl_data.get("ttd_admin_img"):
-        file_admin = f"temp_admin_{spl_data['id']}.png"
-        if base64_to_temp_file(spl_data["ttd_admin_img"], file_admin):
-            pdf.image(file_admin, x=35, y=y_before_ttd, w=40, h=20)
-            if os.path.exists(file_admin):
-                os.remove(file_admin)
-
-    if spl_data.get("ttd_user_img"):
-        file_user = f"temp_user_{spl_data['id']}.png"
-        if base64_to_temp_file(spl_data["ttd_user_img"], file_user):
-            pdf.image(file_user, x=125, y=y_before_ttd, w=40, h=20)
-            if os.path.exists(file_user):
-                os.remove(file_user)
-
-    pdf.ln(22)
+    pdf.ln(15)
     pdf.set_font("Arial", "", 10)
     nama_atasan_ttd = spl_data.get('nama_atasan', 'Atasan / Supervisor')
     pdf.cell(90, 6, f"( {nama_atasan_ttd} )", align="C")
@@ -167,16 +107,10 @@ if "logged_in" not in st.session_state:
 if "last_sent_spl" not in st.session_state:
     st.session_state.last_sent_spl = None
 
-if "reset_canvas_admin" not in st.session_state:
-    st.session_state.reset_canvas_admin = 0
-
-if "reset_canvas_user" not in st.session_state:
-    st.session_state.reset_canvas_user = 0
-
 # --- HALAMAN LOGIN ---
 if not st.session_state.logged_in:
     st.title("🔐 Login Sistem SPL Lembur")
-    st.caption("Masuk untuk membuat, menandatangani, atau mengunduh dokumen SPL")
+    st.caption("Masuk untuk membuat, mengonfirmasi, atau mengunduh dokumen SPL")
     
     with st.form("login_form"):
         username = st.text_input("Username")
@@ -225,7 +159,7 @@ else:
         if st.session_state.last_sent_spl:
             spl_sent = st.session_state.last_sent_spl
             st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
-            st.info(f"Nomor Dokumen: `{spl_sent['id']}` | Karyawan: {spl_sent['karyawan']} | Status: Menunggu TTD Karyawan")
+            st.info(f"Nomor Dokumen: `{spl_sent['id']}` | Karyawan: {spl_sent['karyawan']} | Status: Menunggu Konfirmasi Karyawan")
             
             if st.button("➕ Buat SPL Baru Lagi"):
                 st.session_state.last_sent_spl = None
@@ -244,35 +178,6 @@ else:
             
         instruksi = st.text_area("Instruksi / Perintah Pekerjaan Lembur")
 
-        st.write("**Tanda Tangan Atasan:**")
-        st.caption("✏️ Goreskan tanda tangan Anda pada kotak di bawah ini. Pastikan Anda mengklik di luar area canvas setelah menggambar.")
-        
-        canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
-        canvas_admin = st_canvas(
-            stroke_width=3,
-            stroke_color="#000000",
-            background_color="#FFFFFF",
-            height=130,
-            width=350,
-            drawing_mode="freedraw",
-            update_streamlit=True,
-            key=canvas_admin_key,
-        )
-
-        ttd_admin_base64 = get_canvas_base64(canvas_admin)
-
-        col_a1, col_a2 = st.columns([2, 2])
-        with col_a1:
-            if ttd_admin_base64:
-                st.success("✅ Tanda tangan terdeteksi!")
-            else:
-                st.warning("⚠️ Belum ada tanda tangan di canvas.")
-
-        with col_a2:
-            if st.button("🗑️ Reset Tanda Tangan", key="reset_admin"):
-                st.session_state.reset_canvas_admin += 1
-                st.rerun()
-
         st.divider()
 
         if st.button("🚀 Kirim Perintah Lembur", type="primary"):
@@ -283,8 +188,6 @@ else:
                 err_msg.append("Nama Karyawan belum diisi")
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
-            if not ttd_admin_base64:
-                err_msg.append("Tanda tangan Atasan belum diisi di canvas (silakan goreskan tanda tangan terlebih dahulu)")
 
             if err_msg:
                 st.error("⚠️ " + " | ".join(err_msg))
@@ -298,17 +201,13 @@ else:
                     "tanggal": tanggal.strftime("%Y-%m-%d"),
                     "jam": f"{jam_mulai.strftime('%H:%M')} - {jam_selesai.strftime('%H:%M')}",
                     "instruksi": instruksi,
-                    "ttd_admin": True,
-                    "ttd_admin_img": ttd_admin_base64,
-                    "ttd_user": False,
-                    "ttd_user_img": None,
+                    "confirmed_user": False,
                     "req_delete": False,
-                    "status": "Menunggu TTD Karyawan"
+                    "status": "Menunggu Konfirmasi Karyawan"
                 }
                 st.session_state.db_spl.append(data_baru)
                 save_data(st.session_state.db_spl)
                 
-                st.session_state.reset_canvas_admin += 1
                 st.session_state.last_sent_spl = data_baru
                 st.toast(f"✅ {id_spl} Berhasil Dikirim!", icon="🚀")
                 st.balloons()
@@ -335,9 +234,9 @@ else:
     # ROLE USER (KARYAWAN)
     # ==========================================
     elif st.session_state.role == "User":
-        st.subheader("👷 1. Tanda Tangan Penerimaan SPL")
+        st.subheader("👷 1. Konfirmasi Penerimaan SPL")
         
-        spl_pending = [s for s in st.session_state.db_spl if not s["ttd_user"] and not s.get("req_delete", False)]
+        spl_pending = [s for s in st.session_state.db_spl if not s.get("confirmed_user", False) and not s.get("req_delete", False)]
         
         if spl_pending:
             list_id = [s["id"] for s in spl_pending]
@@ -350,54 +249,20 @@ else:
             **Tanggal & Jam:** {spl_data['tanggal']} | {spl_data['jam']}  
             **Instruksi:** {spl_data['instruksi']}
             """)
-            
-            st.write("**Tanda Tangan Karyawan:**")
-            st.caption("✏️ Goreskan tanda tangan Anda pada kotak di bawah ini.")
-
-            canvas_user_key = f"canvas_user_{st.session_state.reset_canvas_user}"
-            canvas_user = st_canvas(
-                stroke_width=3,
-                stroke_color="#000000",
-                background_color="#FFFFFF",
-                height=130,
-                width=350,
-                drawing_mode="freedraw",
-                update_streamlit=True,
-                key=canvas_user_key,
-            )
-
-            ttd_user_base64 = get_canvas_base64(canvas_user)
-
-            col_u1, col_u2 = st.columns([2, 2])
-            with col_u1:
-                if ttd_user_base64:
-                    st.success("✅ Tanda tangan terdeteksi!")
-                else:
-                    st.warning("⚠️ Belum ada tanda tangan di canvas.")
-
-            with col_u2:
-                if st.button("🗑️ Reset Tanda Tangan", key="reset_user"):
-                    st.session_state.reset_canvas_user += 1
-                    st.rerun()
 
             st.divider()
 
-            if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
-                if ttd_user_base64:
-                    for item in st.session_state.db_spl:
-                        if item["id"] == selected_id:
-                            item["ttd_user"] = True
-                            item["ttd_user_img"] = ttd_user_base64
-                            item["status"] = "Selesai (ACC 2 Belah Pihak)"
-                            break
-                    save_data(st.session_state.db_spl)
-                    st.session_state.reset_canvas_user += 1
-                    st.toast(f"✅ SPL {selected_id} disetujui!", icon="🎉")
-                    st.rerun()
-                else:
-                    st.error("⚠️ Silakan goreskan tanda tangan Anda terlebih dahulu!")
+            if st.button("✅ Konfirmasi Terima SPL", type="primary"):
+                for item in st.session_state.db_spl:
+                    if item["id"] == selected_id:
+                        item["confirmed_user"] = True
+                        item["status"] = "Selesai (Disetujui 2 Belah Pihak)"
+                        break
+                save_data(st.session_state.db_spl)
+                st.toast(f"✅ SPL {selected_id} disetujui!", icon="🎉")
+                st.rerun()
         else:
-            st.info("Tidak ada perintah lembur baru yang menunggu tanda tangan Anda.")
+            st.info("Tidak ada perintah lembur baru yang menunggu konfirmasi Anda.")
 
         # --- MENU PERSETUJUAN HAPUS ---
         st.divider()
