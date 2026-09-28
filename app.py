@@ -113,9 +113,8 @@ def hitung_durasi_jam(string_jam):
     except Exception:
         return 0.0
 
-# Inisialisasi Session State
-if "db_spl" not in st.session_state:
-    st.session_state.db_spl = load_data()
+# SELALU SINKRONKAN DATABASE TERBARU DARI FILE JSON
+st.session_state.db_spl = load_data()
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -153,6 +152,13 @@ if not st.session_state.logged_in:
 else:
     st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.write(f"**Role:** {st.session_state.role}")
+    
+    # Tombol Refresh Manual di Sidebar
+    if st.sidebar.button("🔄 Perbarui Data / Refresh"):
+        st.session_state.db_spl = load_data()
+        st.toast("Data berhasil diperbarui!", icon="🔄")
+        st.rerun()
+        
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.role = None
@@ -169,7 +175,7 @@ else:
     if st.session_state.role == "Admin":
         st.subheader("👨‍💼 1. Buat Perintah Lembur Baru")
         
-        # --- BANNER NOTIFIKASI BESAR JIKA SPL SUDAH TERKIRIM ---
+        # BANNER NOTIFIKASI BESAR JIKA SPL SUDAH TERKIRIM
         if st.session_state.last_sent_spl:
             spl_sent = st.session_state.last_sent_spl
             st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
@@ -254,9 +260,10 @@ else:
                     "status": "Menunggu TTD Karyawan"
                 }
                 st.session_state.db_spl.append(data_baru)
+                
+                # SIMPAN LANGSUNG KE FILE JSON (Semua User langsung bisa membaca file ini)
                 save_data(st.session_state.db_spl)
                 
-                # Simpan ke session state untuk notifikasi besar
                 st.session_state.last_sent_spl = data_baru
                 st.toast(f"✅ {id_spl} Berhasil Dikirim ke {nama_karyawan}!", icon="🚀")
                 st.balloons()
@@ -335,7 +342,7 @@ else:
                             break
                     save_data(st.session_state.db_spl)
                     st.toast(f"✅ SPL {selected_id} berhasil ditandatangani!", icon="🎉")
-                    st.success(f"✅ SPL {selected_id} berhasil disetujui & ditandatangani!")
+                    st.success(f"✅ SPL {selected_id} berhasil disetujui!")
                     st.rerun()
                 else:
                     st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan pada kotak terlebih dahulu.")
