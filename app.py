@@ -122,6 +122,9 @@ if "logged_in" not in st.session_state:
     st.session_state.role = None
     st.session_state.username = ""
 
+if "last_sent_spl" not in st.session_state:
+    st.session_state.last_sent_spl = None
+
 # --- HALAMAN LOGIN ---
 if not st.session_state.logged_in:
     st.title("🔐 Login Sistem SPL Lembur")
@@ -153,6 +156,7 @@ else:
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.role = None
+        st.session_state.last_sent_spl = None
         st.rerun()
 
     st.title("📝 Surat Perintah Lembur (SPL)")
@@ -165,6 +169,26 @@ else:
     if st.session_state.role == "Admin":
         st.subheader("👨‍💼 1. Buat Perintah Lembur Baru")
         
+        # --- BANNER NOTIFIKASI BESAR JIKA SPL SUDAH TERKIRIM ---
+        if st.session_state.last_sent_spl:
+            spl_sent = st.session_state.last_sent_spl
+            st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
+            
+            st.info(f"""
+            ### 📩 Ringkasan SPL Terkirim:
+            * **Nomor Dokumen:** `{spl_sent['id']}`
+            * **Nama Atasan:** {spl_sent['nama_atasan']}
+            * **Nama Karyawan:** {spl_sent['karyawan']} ({spl_sent['departemen']})
+            * **Tanggal & Jam Lembur:** {spl_sent['tanggal']} | {spl_sent['jam']}
+            * **Instruksi Pekerjaan:** {spl_sent['instruksi']}
+            * **Status:** ⏳ Menunggu TTD / Konfirmasi dari Karyawan
+            """)
+            
+            if st.button("➕ Buat SPL Baru"):
+                st.session_state.last_sent_spl = None
+                st.rerun()
+            st.divider()
+
         col1, col2 = st.columns(2)
         with col1:
             nama_atasan = st.text_input("Nama Atasan / Pemberi Perintah")
@@ -191,7 +215,7 @@ else:
             key="canvas_admin_safe",
         )
 
-        if st.button("Kirim Perintah Lembur", type="primary"):
+        if st.button("🚀 Kirim Perintah Lembur", type="primary"):
             err_msg = []
             if not nama_atasan.strip():
                 err_msg.append("Nama Atasan belum diisi")
@@ -231,7 +255,11 @@ else:
                 }
                 st.session_state.db_spl.append(data_baru)
                 save_data(st.session_state.db_spl)
-                st.success(f"✅ Berhasil menerbitkan {id_spl} oleh {nama_atasan} untuk {nama_karyawan}!")
+                
+                # Simpan ke session state untuk notifikasi besar
+                st.session_state.last_sent_spl = data_baru
+                st.toast(f"✅ {id_spl} Berhasil Dikirim ke {nama_karyawan}!", icon="🚀")
+                st.balloons()
                 st.rerun()
 
         # --- MENU AJUKAN HAPUS DATA (ADMIN) ---
@@ -306,7 +334,8 @@ else:
                             item["status"] = "Selesai (ACC 2 Belah Pihak)"
                             break
                     save_data(st.session_state.db_spl)
-                    st.success(f"✅ SPL {selected_id} berhasil disetujui!")
+                    st.toast(f"✅ SPL {selected_id} berhasil ditandatangani!", icon="🎉")
+                    st.success(f"✅ SPL {selected_id} berhasil disetujui & ditandatangani!")
                     st.rerun()
                 else:
                     st.error("⚠️ Tanda tangan belum terdeteksi. Silakan goreskan tanda tangan pada kotak terlebih dahulu.")
