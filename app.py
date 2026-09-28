@@ -4,13 +4,38 @@ from streamlit_drawable_canvas import st_canvas
 import datetime
 import json
 import os
+import base64
+from io import BytesIO
+from PIL import Image
 from fpdf import FPDF
 
 st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wide")
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI GENERATE PDF SPL ---
+# --- FUNGSI CONVERT CANVAS PNG ARRAY KE BASE64 STRING ---
+def canvas_to_base64(image_data):
+    if image_data is None:
+        return None
+    try:
+        img = Image.fromarray(image_data.astype('uint8'), 'RGBA')
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode('utf-8')
+    except Exception:
+        return None
+
+# --- FUNGSI HELPER UNTUK SIMPAN TEMP IMAGE UNTUK FPDF ---
+def base64_to_temp_file(base64_str, filename):
+    try:
+        img_data = base64.b64decode(base64_str)
+        img = Image.open(BytesIO(img_data))
+        img.save(filename, "PNG")
+        return filename
+    except Exception:
+        return None
+
+# --- FUNGSI GENERATE PDF SPL (DENGAN TANDA TANGAN GAMBAR) ---
 def generate_pdf(spl_data):
     pdf = FPDF()
     pdf.add_page()
@@ -50,23 +75,35 @@ def generate_pdf(spl_data):
     pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 6, f"{spl_data['instruksi']}", border=1)
     
-    pdf.ln(15)
+    pdf.ln(10)
     
-    # Status Tanda Tangan
+    # Status & Gambar Tanda Tangan
     pdf.set_font("Arial", "B", 10)
     pdf.cell(90, 8, "Pemberi Perintah (Atasan)", align="C")
     pdf.cell(90, 8, "Penerima Perintah (Karyawan)", align="C", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.ln(15) # Ruang TTD
+    y_before_ttd = pdf.get_y()
     
-    pdf.set_font("Arial", "", 10)
-    ttd_admin_status = "[ VALID - TTD DIGITAL ]" if spl_data.get("ttd_admin") else "[ BELUM TTD ]"
-    ttd_user_status = "[ VALID - TTD DIGITAL ]" if spl_data.get("ttd_user") else "[ BELUM TTD ]"
-    
-    pdf.cell(90, 6, ttd_admin_status, align="C")
-    pdf.cell(90, 6, ttd_user_status, align="C", new_x="LMARGIN", new_y="NEXT")
+    # 1. Menampilkan Gambar TTD Atasan di PDF
+    if spl_data.get("ttd_admin_img"):
+        file_admin = f"temp_admin_{spl_data['id']}.png"
+        if base64_to_temp_file(spl_data["ttd_admin_img"], file_admin):
+            pdf.image(file_admin, x=35, y=y_before_ttd, w=40, h=20)
+            if os.path.exists(file_admin):
+                os.remove(file_admin)
+
+    # 2. Menampilkan Gambar TTD Karyawan di PDF
+    if spl_data.get("ttd_user_img"):
+        file_user = f"temp_user_{spl_data['id']}.png"
+        if base64_to_temp_file(spl_data["ttd_user_img"], file_user):
+            pdf.image(file_user, x=125, y=y_before_ttd, w=40, h=20)
+            if os.path.exists(file_user):
+                os.remove(file_user)
+
+    pdf.ln(22) # Memberikan ruang tinggi gambar TTD
     
     # Nama TTD Atasan & Karyawan
+    pdf.set_font("Arial", "", 10)
     nama_atasan_ttd = spl_data.get('nama_atasan', 'Atasan / Supervisor')
     pdf.cell(90, 6, f"( {nama_atasan_ttd} )", align="C")
     pdf.cell(90, 6, f"( {spl_data['karyawan']} )", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -160,7 +197,6 @@ else:
     st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.write(f"**Role:** {st.session_state.role}")
     
-    # Tombol Refresh Manual di Sidebar
     if st.sidebar.button("🔄 Perbarui Data / Refresh"):
         st.session_state.db_spl = load_data()
         st.toast("Data berhasil diperbarui!", icon="🔄")
@@ -182,7 +218,6 @@ else:
     if st.session_state.role == "Admin":
         st.subheader("👨‍💼 1. Buat Perintah Lembur Baru")
         
-        # BANNER NOTIFIKASI BESAR JIKA SPL SUDAH TERKIRIM
         if st.session_state.last_sent_spl:
             spl_sent = st.session_state.last_sent_spl
             st.success("🎉 **SURAT PERINTAH LEMBUR BERHASIL DITERBITKAN & TERKIRIM!**")
@@ -217,7 +252,6 @@ else:
         st.write("**Tanda Tangan Atasan (Pemberi Perintah):**")
         st.caption("💡 *Goreskan tanda tangan pada kotak di bawah. Jika salah coret, klik **Hapus Tanda Tangan**.*")
         
-        # CANVAS ADMIN DENGAN DYNAMIC KEY UNTUK CLEAR RESET
         canvas_admin_key = f"canvas_admin_{st.session_state.reset_canvas_admin}"
         canvas_admin = st_canvas(
             stroke_width=3,
@@ -248,11 +282,13 @@ else:
                 err_msg.append("Instruksi Pekerjaan belum diisi")
 
             ttd_ada = False
+            ttd_admin_base64 = None
             try:
                 if canvas_admin is not None and canvas_admin.json_data is not None:
                     objects = canvas_admin.json_data.get("objects", [])
                     if len(objects) > 0:
                         ttd_ada = True
+                        ttd_admin_base64 = canvas_to_base64(canvas_admin.image_data)
             except Exception:
                 ttd_ada = False
 
@@ -272,14 +308,15 @@ else:
                     "jam": f"{jam_mulai.strftime('%H:%M')} - {jam_selesai.strftime('%H:%M')}",
                     "instruksi": instruksi,
                     "ttd_admin": True,
+                    "ttd_admin_img": ttd_admin_base64,
                     "ttd_user": False,
+                    "ttd_user_img": None,
                     "req_delete": False,
                     "status": "Menunggu TTD Karyawan"
                 }
                 st.session_state.db_spl.append(data_baru)
                 save_data(st.session_state.db_spl)
                 
-                # Reset canvas TTD setelah berhasil kirim
                 st.session_state.reset_canvas_admin += 1
                 st.session_state.last_sent_spl = data_baru
                 st.toast(f"✅ {id_spl} Berhasil Dikirim ke {nama_karyawan}!", icon="🚀")
@@ -332,7 +369,6 @@ else:
             st.write("**Tanda Tangan Karyawan (Penerima Perintah):**")
             st.caption("💡 *Goreskan tanda tangan pada kotak di bawah. Klik **Hapus Tanda Tangan** jika terjadi kesalahan.*")
 
-            # CANVAS USER DENGAN DYNAMIC KEY UNTUK CLEAR RESET
             canvas_user_key = f"canvas_user_{st.session_state.reset_canvas_user}"
             canvas_user = st_canvas(
                 stroke_width=3,
@@ -353,11 +389,13 @@ else:
 
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
                 ttd_user_ada = False
+                ttd_user_base64 = None
                 try:
                     if canvas_user is not None and canvas_user.json_data is not None:
                         objects = canvas_user.json_data.get("objects", [])
                         if len(objects) > 0:
                             ttd_user_ada = True
+                            ttd_user_base64 = canvas_to_base64(canvas_user.image_data)
                 except Exception:
                     ttd_user_ada = False
 
@@ -365,6 +403,7 @@ else:
                     for item in st.session_state.db_spl:
                         if item["id"] == selected_id:
                             item["ttd_user"] = True
+                            item["ttd_user_img"] = ttd_user_base64
                             item["status"] = "Selesai (ACC 2 Belah Pihak)"
                             break
                     save_data(st.session_state.db_spl)
@@ -411,7 +450,6 @@ else:
     with col_f3:
         filter_nama = st.text_input("Filter Nama Karyawan (Opsional)", "")
 
-    # Proses Pengolahan Data
     data_filtered = []
     total_jam_periode = 0.0
 
@@ -428,7 +466,6 @@ else:
         except Exception:
             pass
 
-    # Ringkasan Kartu
     col_m1, col_m2 = st.columns(2)
     with col_m1:
         st.metric("Total Dokumen SPL", f"{len(data_filtered)} SPL")
