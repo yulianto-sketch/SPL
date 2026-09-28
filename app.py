@@ -14,21 +14,23 @@ st.set_page_config(page_title="Sistem SPL Online", page_icon="📝", layout="wid
 
 DB_FILE = "data_spl.json"
 
-# --- FUNGSI DETEKSI APAKAH CANVAS SUDAH DITANDATANGANI ---
-def is_canvas_signed(image_data):
-    if image_data is None:
-        return False
+# --- FUNGSI AMAN UNTUK MEMERIKSA DAN MENGAMBIL GAMBAR TTD ---
+def get_canvas_image_safely(canvas_obj):
+    """Mengambil array image_data secara aman dari canvas tanpa memicu RuntimeError."""
+    if canvas_obj is None:
+        return None, False
     try:
-        # Jika ada elemen warna/piksel selain background transparan/putih murni
-        # Cek channel alpha atau variasi nilai piksel
-        if isinstance(image_data, np.ndarray):
-            # Cek jika ada warna hitam / goresan
-            # Kanal RGB (0, 1, 2) memiliki nilai kurang dari 200 (area goresan gelap)
-            has_strokes = np.any(image_data[:, :, :3] < 100)
-            return bool(has_strokes)
+        # Cek json_data terlebih dahulu untuk memastikan ada goresan/objek
+        if canvas_obj.json_data is not None:
+            objects = canvas_obj.json_data.get("objects", [])
+            if len(objects) > 0:
+                # Mengambil image_data di dalam try-except
+                img_data = canvas_obj.image_data
+                if img_data is not None:
+                    return img_data, True
     except Exception:
         pass
-    return False
+    return None, False
 
 # --- FUNGSI CONVERT CANVAS PNG ARRAY KE BASE64 STRING ---
 def canvas_to_base64(image_data):
@@ -295,13 +297,9 @@ else:
             if not instruksi.strip():
                 err_msg.append("Instruksi Pekerjaan belum diisi")
 
-            # CEK VALIDASI TANDA TANGAN LEBIH AKURAT
-            ttd_ada = False
-            ttd_admin_base64 = None
-            if canvas_admin is not None and canvas_admin.image_data is not None:
-                if is_canvas_signed(canvas_admin.image_data):
-                    ttd_ada = True
-                    ttd_admin_base64 = canvas_to_base64(canvas_admin.image_data)
+            # AMBIL DATA CANVAS SECARA AMAN
+            admin_img_data, ttd_ada = get_canvas_image_safely(canvas_admin)
+            ttd_admin_base64 = canvas_to_base64(admin_img_data) if ttd_ada else None
 
             if not ttd_ada:
                 err_msg.append("Tanda tangan belum digoreskan")
@@ -399,12 +397,8 @@ else:
             st.divider()
 
             if st.button("Konfirmasi & Tanda Tangan SPL", type="primary"):
-                ttd_user_ada = False
-                ttd_user_base64 = None
-                if canvas_user is not None and canvas_user.image_data is not None:
-                    if is_canvas_signed(canvas_user.image_data):
-                        ttd_user_ada = True
-                        ttd_user_base64 = canvas_to_base64(canvas_user.image_data)
+                user_img_data, ttd_user_ada = get_canvas_image_safely(canvas_user)
+                ttd_user_base64 = canvas_to_base64(user_img_data) if ttd_user_ada else None
 
                 if ttd_user_ada:
                     for item in st.session_state.db_spl:
